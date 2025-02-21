@@ -20,7 +20,7 @@ def bat_dau(message):
     chat_id = message.chat.id
     bot.send_photo(
         chat_id,
-        photo="https://t.me/zizfif",
+        photo="https://t.me/grouptmq",
         caption='''*- Chào mừng bạn đến với Bot 🤖.
 - Bot hỗ trợ tạo tài khoản Facebook Fake.
 - Gửi lệnh /tao và chờ đợi...*''',
