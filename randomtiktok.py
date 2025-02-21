@@ -14,6 +14,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 cookie_nguoi_dung = {}
 so_luong_tai_khoan = {}
 thoi_gian_tre = {}
+anh_dai_dien_nguoi_dung = {}
 
 # Nguồn proxy (thêm nhiều hơn nếu cần)
 nguon_proxy = [
@@ -62,7 +63,7 @@ def dinh_dang_proxy(proxy_string):
         return None
 
 
-def kiem_tra_cookie(cookie, proxy):
+def kiem_tra_cookie(cookie):
     """Kiểm tra xem cookie còn sống hay không."""
     headers_get = {
         'authority': 'www.facebook.com',
@@ -83,18 +84,18 @@ def kiem_tra_cookie(cookie, proxy):
     }
     uid = cookie.split('c_user=')[1].split(';')[0]
     try:
-        url = requests.get(f"https://mbasic.facebook.com/profile.php?id={uid}", headers=headers_get, proxies=proxy, timeout=10).text
-        name = url.split("><head><title>")[1].split("</title><meta name")[0]
+        url = requests.get(f"https://mbasic.facebook.com/profile.php?id={uid}", headers=headers_get, timeout=10).text
         if 'Đăng nhập Facebook' in url:
             return 'error_ck'
         else:
-            return name
+            return 'valid_ck'  # Chỉ trả về 'valid_ck' nếu cookie hợp lệ
     except requests.exceptions.RequestException as e:
         print(f"Lỗi trong quá trình kiểm tra cookie: {e}")
         return 'error_ck'
     except Exception as e:
         print(f"Một lỗi không mong muốn đã xảy ra: {e}")
         return 'error_ck'
+
 
 
 def dang_ky(cookie, proxy):
@@ -174,7 +175,7 @@ def dang_ky(cookie, proxy):
         return 'error'
 
 
-def tai_anh_dai_dien(cookie, id_page, proxy):
+def tai_anh_dai_dien(cookie, id_page, proxy, image_path):
     """Tải ảnh đại diện cho tài khoản Pro5."""
     cookie += f";i_user={id_page}"
     headers = {
@@ -218,10 +219,10 @@ def tai_anh_dai_dien(cookie, id_page, proxy):
             "__spin_b": "trunk",
             "__spin_t": "1686891592"
         }
-        avt = random.choice(os.listdir(os.path.expanduser("avt_pro5")))
-        jpg = open("avt_pro5/" + avt, "rb").read()
-        files = {'file': open("avt_pro5/" + avt, 'rb')}
-        values = {"Content-Disposition": "form-data", "name": "file", "filename": f"avt_pro5/" + avt,
+
+        jpg = open(image_path, "rb").read()  # Đọc ảnh từ đường dẫn đã lưu
+        files = {'file': open(image_path, 'rb')}
+        values = {"Content-Disposition": "form-data", "name": "file", "filename": image_path, # Use the path
                   "Content-Type": "image/jpeg"}
         headers['content-length'] = str(len(jpg))
         response = requests.post('https://www.facebook.com/profile/picture/upload/',
@@ -276,6 +277,7 @@ def lenh_regpg(message):
     cookie_nguoi_dung[chat_id] = None  # Reset cookie
     so_luong_tai_khoan[chat_id] = None # Reset số lượng tài khoản
     thoi_gian_tre[chat_id] = None # Reset thời gian trễ
+    anh_dai_dien_nguoi_dung[chat_id] = None # Reset ảnh đại diện
 
     bot.send_message(chat_id, "Vui lòng nhập cookie của bạn:")
     bot.register_next_step_handler(message, nhap_cookie)
@@ -284,10 +286,39 @@ def lenh_regpg(message):
 def nhap_cookie(message):
     """Nhận cookie từ người dùng."""
     chat_id = message.chat.id
-    cookie_nguoi_dung[chat_id] = message.text.strip()
+    cookie = message.text.strip()
+    # Kiểm tra cookie trước khi lưu
+    kiem_tra = kiem_tra_cookie(cookie)
+    if kiem_tra == 'valid_ck':
+        cookie_nguoi_dung[chat_id] = cookie
+        bot.send_message(chat_id, "Cookie hợp lệ. Bây giờ hãy gửi ảnh đại diện cho các tài khoản Pro5 (gửi ảnh dưới dạng file):")
+        bot.register_next_step_handler(message, nhap_anh_dai_dien)
+    else:
+        bot.send_message(chat_id, "Cookie không hợp lệ. Vui lòng nhập lại:")
+        bot.register_next_step_handler(message, nhap_cookie) #Yêu cầu nhập lại cookie
 
-    bot.send_message(chat_id, "Vui lòng nhập số lượng tài khoản Pro5 bạn muốn tạo:")
-    bot.register_next_step_handler(message, nhap_so_luong)
+
+
+def nhap_anh_dai_dien(message):
+    """Nhận ảnh đại diện từ người dùng."""
+    chat_id = message.chat.id
+    if message.document:
+        try:
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            duong_dan_anh = f"avt_{chat_id}.jpg" #Tạo tên file duy nhất cho mỗi user
+            with open(duong_dan_anh, 'wb') as new_file:
+                new_file.write(downloaded_file)
+            anh_dai_dien_nguoi_dung[chat_id] = duong_dan_anh # Lưu đường dẫn ảnh
+            bot.send_message(chat_id, "Đã nhận được ảnh đại diện. Vui lòng nhập số lượng tài khoản Pro5 bạn muốn tạo:")
+            bot.register_next_step_handler(message, nhap_so_luong)
+
+        except Exception as e:
+            bot.send_message(chat_id, f"Lỗi khi tải ảnh đại diện: {e}")
+            return
+    else:
+        bot.send_message(chat_id, "Vui lòng gửi ảnh dưới dạng file (document), không phải ảnh thông thường.")
+        bot.register_next_step_handler(message, nhap_anh_dai_dien) #Yêu cầu gửi lại ảnh
 
 
 def nhap_so_luong(message):
@@ -330,6 +361,7 @@ def thuc_hien_dang_ky(chat_id):
     cookie = cookie_nguoi_dung.get(chat_id)
     so_luong = so_luong_tai_khoan.get(chat_id)
     delay = thoi_gian_tre.get(chat_id)
+    image_path = anh_dai_dien_nguoi_dung.get(chat_id)
 
     if not cookie:
         bot.send_message(chat_id, "Cookie chưa được cung cấp. Vui lòng sử dụng /regpg lại.")
@@ -341,16 +373,10 @@ def thuc_hien_dang_ky(chat_id):
         bot.send_message(chat_id, "Thời gian trễ chưa được cung cấp. Vui lòng sử dụng /regpg lại.")
         return
 
-    try:
-        ten_tai_khoan = kiem_tra_cookie(cookie, None) #Không dùng proxy khi check cookie
-        if ten_tai_khoan == 'error_ck':
-            bot.send_message(chat_id, "Cookie không hợp lệ.")
-            return
-        else:
-            bot.send_message(chat_id, f"Cookie hợp lệ. Tên tài khoản: {ten_tai_khoan}")
-    except:
-        bot.send_message(chat_id, "Lỗi khi kiểm tra cookie. Vui lòng thử lại.")
+    if not image_path:
+        bot.send_message(chat_id, "Ảnh đại diện chưa được cung cấp. Vui lòng sử dụng /regpg lại.")
         return
+
 
     dem = 0
     for i in range(so_luong):
@@ -374,7 +400,7 @@ def thuc_hien_dang_ky(chat_id):
         UID = uid_pro5[0]
         ten = uid_pro5[1]
         bot.send_message(chat_id, f"[{dem}/{so_luong}] - Uid_Pro5: {UID}|{ten} - [{i+1}/{so_luong}]")
-        ket_qua_tai_anh = tai_anh_dai_dien(cookie, UID, proxy)
+        ket_qua_tai_anh = tai_anh_dai_dien(cookie, UID, proxy, image_path)
         if ket_qua_tai_anh == 'error_avt':
             bot.send_message(chat_id, "Lỗi khi tải ảnh đại diện.")
             break
@@ -383,16 +409,16 @@ def thuc_hien_dang_ky(chat_id):
         sleep(delay) # Delay
 
     bot.send_message(chat_id, "Quá trình đăng ký Pro5 đã hoàn tất.")
-
+    # Xóa ảnh sau khi dùng xong
+    try:
+        os.remove(image_path)
+        print(f"Đã xóa file ảnh: {image_path}")
+    except Exception as e:
+        print(f"Lỗi khi xóa file ảnh: {e}")
 
 
 
 # Khởi chạy bot
 if __name__ == '__main__':
-    # Tạo thư mục avt_pro5 nếu nó không tồn tại
-    if not os.path.exists("avt_pro5"):
-        os.makedirs("avt_pro5")
-        print("Vui lòng đặt ảnh đại diện vào thư mục 'avt_pro5'.")
-
     print("Bot đã khởi động. Đang chờ lệnh...")
     bot.infinity_polling()
