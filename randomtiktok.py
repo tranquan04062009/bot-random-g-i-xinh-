@@ -1,94 +1,192 @@
-import random
-import requests
-from telebot import TeleBot, types
+import requests, random, os
+import datetime
+
+# Kiểm tra ngày hết hạn
+ngay_hien_tai = datetime.date.today()
+ngay_muc_tieu = datetime.date(2025, 12, 25)
+if ngay_hien_tai >= ngay_muc_tieu:
+    exit("Dừng hoạt động")
+else:
+    print("Đang chạy...")
+
+import threading
+from threading import active_count
+import urllib
+import time
+import telebot
+from telebot import types
 
 # Token cố định
-TOKEN_BOT = "7903504769:AAFPy0G459oCKCs0s1xM7yi60mSSLAx9VAU"
+TOKEN = "7903504769:AAFPy0G459oCKCs0s1xM7yi60mSSLAx9VAU"
+bot = telebot.TeleBot(TOKEN)
 
-bot = TeleBot(TOKEN_BOT, parse_mode="Markdown", disable_web_page_preview=True, num_threads=5)
+so_luong_luong = 400  
+luong_dang_chay = []
+danh_sach_link = []
+so_luot_thanh_cong = 0
+so_luot_that_bai = 0
+dang_chay = False
+so_luong_link = 0
+so_luot_muc_tieu = 0  
 
-# Tạo bàn phím chứa nút liên hệ
-def lien_he_admin():
-    key = types.InlineKeyboardMarkup(row_width=1)
-    admin = types.InlineKeyboardButton("⦗ Liên hệ Admin ⦘", url="tg://user?id=6940071938")
-    key.add(admin)
-    return key
+def tao_ban_phim():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = types.KeyboardButton('Gửi liên kết')
+    btn2 = types.KeyboardButton('Bắt đầu tăng view')
+    btn3 = types.KeyboardButton('Dừng tăng view')
+    btn4 = types.KeyboardButton('Xem lượt view thành công')
+    btn5 = types.KeyboardButton('Chạy lại')
+    markup.add(btn1, btn2, btn3, btn4, btn5)
+    return markup
 
-# Xử lý lệnh /start
-@bot.message_handler(commands=["startfb"])
-def bat_dau(message):
-    chat_id = message.chat.id
-    bot.send_photo(
-        chat_id,
-        photo="https://t.me/grouptmq",
-        caption='''*- Chào mừng bạn đến với Bot 🤖.
-- Bot hỗ trợ tạo tài khoản Facebook Fake.
-- Gửi lệnh /tao và chờ đợi...*''',
-        reply_markup=lien_he_admin(),
-        reply_to_message_id=message.message_id
-    )
+@bot.message_handler(commands=['start'])
+def bat_dau_tin_nhan(message):
+    global danh_sach_link, so_luong_link, dang_chay, so_luot_thanh_cong, so_luot_that_bai
+    danh_sach_link = []  
+    so_luong_link = 0  
+    so_luot_thanh_cong = 0
+    so_luot_that_bai = 0
+    dang_chay = False  
+    bot.send_message(message.chat.id, "Chào mừng bạn đến với bot tăng view Telegram! 🧚‍♀️", reply_markup=tao_ban_phim())
 
-# Xử lý lệnh /tao
-@bot.message_handler(commands=['tao', 'Tao'])
-def tao_tai_khoan(message):
-    danh_sach_mxh = ['hotmail.com', 'gmail.com', 'yahoo.com', 'aol.com', 'msn.com', 'outlook.com']
-    chu_cai = 'abcdefghijklmnopqrstuvwxyz'
-    email = ''.join(random.choice(chu_cai) for i in range(10)) + '@' + random.choice(danh_sach_mxh)
-    mat_khau = "112233sada"
+@bot.message_handler(func=lambda message: message.text == 'Gửi liên kết')
+def gui_lien_ket(message):
+    global so_luong_link, dang_chay
+    if dang_chay:
+        dang_chay = False  
+        bot.reply_to(message, "Đã dừng tăng view để nhận liên kết mới.")  
+    bot.reply_to(message, "Vui lòng gửi liên kết.")
+    bot.register_next_step_handler(message, luu_link)
 
-    url = 'https://web.facebook.com/ajax/register.php'
-    headers = {
-        "Accept": "*/*", 
-        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://web.facebook.com",
-        "Referer": "https://web.facebook.com/r.php",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, như Gecko) Chrome/120.0.0.0 Safari/537.36",
-    }
-    du_lieu = {
-        'jazoest': '2945',
-        'lsd': 'AVrQPVBRqt8',
-        'firstname': 'Nguyen',
-        'lastname': 'Van A',
-        'reg_email__': email,
-        'reg_email_confirmation__': email,
-        'reg_passwd__': mat_khau,
-        'birthday_day': '20',
-        'birthday_month': '6',
-        'birthday_year': '2003',
-        'sex': '2',
-        'terms': 'on',
-        '__user': '0',
-        '__a': '1',
-        '__req': 'h',
-        '__hs': '19894.BP:DEFAULT.2.0..0.0',
-        '__spin_r': '1014348293',
-        '__spin_b': 'trunk',
-        '__spin_t': '1718889560',
-    }
+def luu_link(message):
+    global danh_sach_link, so_luong_link
+    link = message.text
+    danh_sach_link = [link] * 6  
+    so_luong_link = 6
+    bot.reply_to(message, "Liên kết đã được lưu, nhấn 'Bắt đầu tăng view' để tiếp tục.")
 
-    phan_hoi = requests.post(url, headers=headers, data=du_lieu).text
-
-    if 'registration_succeeded":true' in phan_hoi:
-        print("\n- Đã tạo tài khoản và gửi tới bot...")
-        chat_id = message.chat.id
-        bot.send_photo(
-            chat_id,
-            photo="https://t.me/grouptmq",
-            caption=f'''*[ ✅ Tạo tài khoản Facebook thành công! ]*
-━━━━━━━━━━━━━━━
-👤 *Tên đăng nhập:* `{email}`
-🔑 *Mật khẩu:* `{mat_khau}`
-📅 *Ngày sinh:* `{du_lieu["birthday_day"]}/{du_lieu["birthday_month"]}/{du_lieu["birthday_year"]}`
-━━━━━━━━━━━━━━━
-💡 *Liên hệ hỗ trợ:* 0376841471
-''',
-            reply_markup=lien_he_admin(),
-            reply_to_message_id=message.message_id
-        )
+@bot.message_handler(func=lambda message: message.text == 'Bắt đầu tăng view')
+def bat_dau_view(message):
+    global dang_chay, so_luot_muc_tieu
+    if not dang_chay:
+        if len(danh_sach_link) == 6:
+            bot.reply_to(message, "Bạn muốn tăng bao nhiêu lượt xem?")
+            bot.register_next_step_handler(message, thiet_lap_muc_tieu)
+        else:
+            bot.reply_to(message, "Bạn cần gửi liên kết trước!")
     else:
-        print("Lỗi khi tạo tài khoản")
-        bot.send_message(message.chat.id, "❌ Lỗi khi tạo tài khoản Facebook Fake!")
+        bot.reply_to(message, "Tăng view đang chạy.")
 
-# Chạy bot
-bot.infinity_polling()
+def thiet_lap_muc_tieu(message):
+    global so_luot_muc_tieu, dang_chay
+    try:
+        so_luot_muc_tieu = int(message.text)
+        dang_chay = True
+        bot.reply_to(message, f"Bắt đầu tăng {so_luot_muc_tieu} lượt xem...")
+        bat_dau()
+    except ValueError:
+        bot.reply_to(message, "Vui lòng nhập số hợp lệ.")
+
+@bot.message_handler(func=lambda message: message.text == 'Dừng tăng view')
+def dung_view(message):
+    global dang_chay
+    if dang_chay:
+        dang_chay = False
+        bot.reply_to(message, "Đã dừng tăng view.")
+    else:
+        bot.reply_to(message, "Hiện tại không có tiến trình nào đang chạy.")
+
+@bot.message_handler(func=lambda message: message.text == 'Xem lượt view thành công')
+def xem_thong_ke(message):
+    bot.reply_to(message, f"Lượt xem thành công: {so_luot_thanh_cong}\nLượt xem thất bại: {so_luot_that_bai}")
+
+@bot.message_handler(func=lambda message: message.text == 'Chạy lại')
+def chay_lai(message):
+    global danh_sach_link, so_luong_link, dang_chay, so_luot_thanh_cong, so_luot_that_bai
+    danh_sach_link = []  
+    so_luong_link = 0  
+    so_luot_thanh_cong = 0
+    so_luot_that_bai = 0
+    dang_chay = False  
+    bot.reply_to(message, "Gửi liên kết mới để tiếp tục.")
+
+def tang_view(proxy):
+    global so_luot_thanh_cong, so_luot_that_bai, dang_chay, so_luot_muc_tieu
+    for link in danh_sach_link:
+        if not dang_chay:
+            break
+        kenh = link.split('/')[3]
+        id_tin_nhan = link.split('/')[4]
+        if gui_luot_xem(kenh, id_tin_nhan, proxy):
+            so_luot_thanh_cong += 1
+            if so_luot_thanh_cong >= so_luot_muc_tieu:
+                dang_chay = False
+                bot.send_message(message.chat.id, f"Đã hoàn thành {so_luot_muc_tieu} lượt xem.", reply_markup=tao_ban_phim())
+                break
+        else:
+            so_luot_that_bai += 1
+
+def gui_luot_xem(kenh, id_tin_nhan, proxy):
+    s = requests.Session()
+    proxies = {'http': proxy, 'https': proxy}    
+    try:
+        a = s.get(f"https://t.me/{kenh}/{id_tin_nhan}", timeout=10, proxies=proxies)
+        cookie = a.headers['set-cookie'].split(';')[0]
+    except:
+        return False
+
+    try:
+        i = s.get(f'https://t.me/v/?views={cookie}', timeout=10, proxies=proxies)
+        if i.text == "true":
+            return True
+    except:
+        return False
+
+def lay_proxy():
+    try:
+        https = requests.get("https://api.proxyscrape.com/?request=displayproxies&proxytype=https&timeout=0").text
+        http = requests.get("https://api.proxyscrape.com/?request=displayproxies&proxytype=http&timeout=0").text
+        socks = requests.get("https://api.proxyscrape.com/?request=displayproxies&proxytype=socks5&timeout=0").text
+    except Exception as e:
+        print(e)
+        return False    
+    with open("proxies.txt", "w") as f:
+        f.write(https + "\n" + http)    
+    with open("socks.txt", "w") as f:
+        f.write(socks)
+
+def kiem_tra_proxy(proxy):
+    try:
+        tang_view(proxy)
+    except:
+        return False
+
+def bat_dau():
+    s = lay_proxy()
+    if s == False:
+        return    
+    with open('proxies.txt', 'r') as f:
+        proxies = f.readlines()
+    for proxy in proxies:
+        p = proxy.strip()
+        if not p:
+            continue
+        while active_count() > so_luong_luong:
+            pass
+        thread = threading.Thread(target=kiem_tra_proxy, args=(p,))
+        luong_dang_chay.append(thread)
+        thread.start()    
+    with open('socks.txt', 'r') as f:
+        proxies = f.readlines()    
+    for proxy in proxies:
+        p = proxy.strip()
+        if not p:
+            continue
+        while active_count() > so_luong_luong:
+            pass
+        pr = "socks5://" + p
+        thread = threading.Thread(target=kiem_tra_proxy, args=(pr,))
+        luong_dang_chay.append(thread)
+        thread.start()
+
+bot.polling()
