@@ -3,3 +3,4 @@ requests
 bs4
 requests_html
 lxml[html_clean]
+TikTokApi
