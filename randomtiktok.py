@@ -2,37 +2,41 @@ import telebot
 import requests
 import random
 import os
+import time
 
 # Nhập Bot Token của bạn
 BOT_TOKEN = "7903504769:AAFPy0G459oCKCs0s1xM7yi60mSSLAx9VAU"
 
-# API tải video TikTok
-TIKTOK_API = "https://www.tikwm.com/api/feed/search"
+# API tìm kiếm video TikTok
+TIKTOK_SEARCH_API = "https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/"
 
-# Danh sách từ khóa tìm kiếm video gái xinh
+# Danh sách từ khóa tìm kiếm
 SEARCH_KEYWORDS = ["gái xinh", "hot girl", "pretty girl", "tiktok girl"]
 
 # Khởi tạo bot Telegram
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Hàm lấy 1 video duy nhất từ TikTok
-def get_tiktok_video():
-    try:
-        keyword = random.choice(SEARCH_KEYWORDS)  # Chọn từ khóa ngẫu nhiên
-        params = {"keyword": keyword, "count": 5}  # Lấy tối đa 5 video
-        response = requests.get(TIKTOK_API, params=params)
-        data = response.json()
+# Hàm lấy video TikTok duy nhất
+def get_tiktok_video(retry=3):
+    for _ in range(retry):
+        try:
+            keyword = random.choice(SEARCH_KEYWORDS)  # Chọn từ khóa ngẫu nhiên
+            params = {"keyword": keyword, "count": 10}  # Tìm 10 video để tránh lỗi
+            response = requests.get(TIKTOK_SEARCH_API, params=params)
+            data = response.json()
 
-        if "data" in data and data["data"]:
-            video = data["data"][0]  # Chỉ lấy video đầu tiên
-            return {
-                "video_url": video["play"],  # Link tải video
-                "author": video["author"]["nickname"],
-                "video_id": video["video_id"]
-            }
-    except Exception as e:
-        print(f"Lỗi khi lấy video: {e}")
-    
+            if "aweme_list" in data and len(data["aweme_list"]) > 0:
+                for video in data["aweme_list"]:
+                    if "video" in video and "play_addr" in video["video"]:
+                        return {
+                            "video_url": video["video"]["play_addr"]["url_list"][0],
+                            "author": video["author"]["nickname"],
+                            "video_id": video["aweme_id"]
+                        }
+        except Exception as e:
+            print(f"Lỗi khi lấy video: {e}")
+        time.sleep(1)  # Chờ 1 giây trước khi thử lại
+
     return None
 
 # Xử lý lệnh /randomvdgaixinh
