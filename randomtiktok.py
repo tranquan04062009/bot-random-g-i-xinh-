@@ -17,7 +17,7 @@ import telebot
 from telebot import types
 
 # Token cố định
-TOKEN = "7903504769:AAFPy0G459oCKCs0s1xM7yi60mSSLAx9VAU"
+TOKEN = "7903504769:AAEMX3AUeOgGXvHNMQ5x7T7XcewuK90quNQ"
 bot = telebot.TeleBot(TOKEN)
 
 so_luong_luong = 400  
