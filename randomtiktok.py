@@ -15,7 +15,7 @@ def lien_he_admin():
     return key
 
 # Xử lý lệnh /start
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=["startfb"])
 def bat_dau(message):
     chat_id = message.chat.id
     bot.send_photo(
