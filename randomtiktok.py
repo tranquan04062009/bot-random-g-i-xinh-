@@ -74,7 +74,7 @@ def tao_tai_khoan(message):
         chat_id = message.chat.id
         bot.send_photo(
             chat_id,
-            photo="https://t.me/zizfif",
+            photo="https://t.me/grouptmq",
             caption=f'''*[ ✅ Tạo tài khoản Facebook thành công! ]*
 ━━━━━━━━━━━━━━━
 👤 *Tên đăng nhập:* `{email}`
