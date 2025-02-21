@@ -1,3 +1,4 @@
 pyTelegramBotAPI
 requests
 bs4
+requests_html
