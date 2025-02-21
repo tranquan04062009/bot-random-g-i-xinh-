@@ -1,9 +1,7 @@
 import telebot
-import os
-import random
-import re
-from requests_html import HTMLSession
 import requests
+import random
+import os
 
 # Nhập Bot Token của bạn
 BOT_TOKEN = "7903504769:AAFPy0G459oCKCs0s1xM7yi60mSSLAx9VAU"
@@ -13,63 +11,58 @@ SEARCH_KEYWORDS = [
     "gái xinh", "hot girl", "pretty girl", "tiktok girl", "beauty girl", "cute girl"
 ]
 
-# URL tìm kiếm trên TikTok (sử dụng query URL)
-TIKTOK_SEARCH_URL = "https://www.tiktok.com/search?q={query}"
+# URL API tìm kiếm video TikTok
+TIKTOK_SEARCH_API = "https://www.tiktok.com/api/search/general/?keyword={query}&count=10"
 
 # Khởi tạo bot Telegram
 bot = telebot.TeleBot(BOT_TOKEN)
 
-def search_tiktok_video():
+def get_tiktok_video():
     """
-    Tìm kiếm video TikTok bằng cách render trang kết quả tìm kiếm và trích xuất link video.
+    Tìm kiếm video TikTok bằng API chính thức của TikTok.
     """
     keyword = random.choice(SEARCH_KEYWORDS)
-    query = keyword.replace(" ", "%20")
-    search_url = TIKTOK_SEARCH_URL.format(query=query)
+    search_url = TIKTOK_SEARCH_API.format(query=keyword.replace(" ", "%20"))
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
         "Referer": "https://www.tiktok.com/"
     }
 
-    session = HTMLSession()
     try:
-        response = session.get(search_url, headers=headers)
-        # Render trang để thực thi JS (chú ý: quá trình này có thể mất vài giây)
-        response.html.render(timeout=20, sleep=2)
-        html_content = response.html.html
+        response = requests.get(search_url, headers=headers).json()
+        videos = response.get("data", {}).get("videos", [])
+        
+        if videos:
+            video_data = random.choice(videos)  # Chọn video ngẫu nhiên
+            video_url = video_data["play_addr"]
+            video_author = video_data["author"]["nickname"]
+            video_title = video_data["desc"]
 
-        # Dùng regex trích xuất các link video (playAddr)
-        # Mẫu regex tìm chuỗi bắt đầu bằng "playAddr":"(https://...)" cho đến dấu ngoặc kép
-        video_links = re.findall(r'"playAddr":"(https://[^"]+)"', html_content)
-        if video_links:
-            # Chọn ngẫu nhiên một link và thay thế ký tự escape "\u0026" thành "&"
-            video_url = random.choice(video_links).replace("\\u0026", "&")
-            return video_url
+            return video_url, video_author, video_title
     except Exception as e:
-        print("Lỗi khi tìm kiếm video:", e)
-    return None
+        print("Lỗi khi lấy video từ API TikTok:", e)
+    
+    return None, None, None
 
 @bot.message_handler(commands=['randomvdgaixinh'])
 def send_video(message):
     bot.reply_to(message, "🔎 Đang tìm video gái xinh TikTok...")
-    video_url = search_tiktok_video()
+
+    video_url, author, title = get_tiktok_video()
     if video_url:
         video_path = "tiktok_video.mp4"
         try:
             # Tải video về máy chủ
-            with requests.get(video_url, stream=True) as r:
-                r.raise_for_status()
-                with open(video_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
+            with open(video_path, "wb") as f:
+                f.write(requests.get(video_url).content)
+
             # Gửi video trực tiếp lên Telegram
             with open(video_path, "rb") as video_file:
                 bot.send_video(
                     message.chat.id,
                     video_file,
-                    caption="🎥 Video Gái Xinh TikTok",
+                    caption=f"🎥 **Video Gái Xinh TikTok** 🎥\n\n📌 **Tác giả**: {author}\n📝 **Tiêu đề**: {title}",
                     parse_mode="Markdown"
                 )
         except Exception as e:
