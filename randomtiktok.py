@@ -2,41 +2,40 @@ import telebot
 import requests
 import random
 import os
-import time
+import re
+from bs4 import BeautifulSoup
 
 # Nhập Bot Token của bạn
 BOT_TOKEN = "7903504769:AAFPy0G459oCKCs0s1xM7yi60mSSLAx9VAU"
 
-# API tìm kiếm video TikTok
-TIKTOK_SEARCH_API = "https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/"
+# Danh sách từ khóa tìm kiếm video gái xinh
+SEARCH_KEYWORDS = ["gái xinh", "hot girl", "pretty girl", "tiktok girl", "beauty girl", "cute girl"]
 
-# Danh sách từ khóa tìm kiếm
-SEARCH_KEYWORDS = ["gái xinh", "hot girl", "pretty girl", "tiktok girl"]
+# URL tìm kiếm TikTok
+TIKTOK_SEARCH_URL = "https://www.tiktok.com/search?q={query}"
 
 # Khởi tạo bot Telegram
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Hàm lấy video TikTok duy nhất
-def get_tiktok_video(retry=3):
-    for _ in range(retry):
-        try:
-            keyword = random.choice(SEARCH_KEYWORDS)  # Chọn từ khóa ngẫu nhiên
-            params = {"keyword": keyword, "count": 10}  # Tìm 10 video để tránh lỗi
-            response = requests.get(TIKTOK_SEARCH_API, params=params)
-            data = response.json()
+# Hàm tìm kiếm video TikTok trực tiếp
+def search_tiktok_videos():
+    keyword = random.choice(SEARCH_KEYWORDS).replace(" ", "%20")  # Chọn từ khóa ngẫu nhiên
+    search_url = TIKTOK_SEARCH_URL.format(query=keyword)
 
-            if "aweme_list" in data and len(data["aweme_list"]) > 0:
-                for video in data["aweme_list"]:
-                    if "video" in video and "play_addr" in video["video"]:
-                        return {
-                            "video_url": video["video"]["play_addr"]["url_list"][0],
-                            "author": video["author"]["nickname"],
-                            "video_id": video["aweme_id"]
-                        }
-        except Exception as e:
-            print(f"Lỗi khi lấy video: {e}")
-        time.sleep(1)  # Chờ 1 giây trước khi thử lại
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+    }
 
+    response = requests.get(search_url, headers=headers)
+
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Tìm tất cả các video có trong trang
+        video_links = re.findall(r'"playAddr":"(https://.+?)"', response.text)
+
+        if video_links:
+            return random.choice(video_links).replace("\\u0026", "&")  # Chọn video ngẫu nhiên và sửa URL
     return None
 
 # Xử lý lệnh /randomvdgaixinh
@@ -44,10 +43,9 @@ def get_tiktok_video(retry=3):
 def send_video(message):
     bot.reply_to(message, "🔎 Đang tìm video gái xinh TikTok...")
 
-    video = get_tiktok_video()
-    if video:
-        video_url = video["video_url"]
-        video_path = f"tiktok_{video['video_id']}.mp4"
+    video_url = search_tiktok_videos()
+    if video_url:
+        video_path = "tiktok_video.mp4"
 
         # Tải video về máy chủ
         try:
@@ -59,11 +57,7 @@ def send_video(message):
                 bot.send_video(
                     message.chat.id,
                     video_file,
-                    caption=(
-                        f"🎥 **Video Gái Xinh** 🎥\n"
-                        f"- **Chủ Video:** {video['author']}\n"
-                        f"- **ID Video:** {video['video_id']}"
-                    ),
+                    caption="🎥 **Video Gái Xinh** 🎥",
                     parse_mode="Markdown"
                 )
         except Exception as e:
