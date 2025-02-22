@@ -180,9 +180,10 @@ async def share_command(event):
         await event.respond(f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
         return
 
-    share_data[chat_id] = {}  # Initialize
+    share_data[chat_id] = {'waiting_for_file': True}  # Initialize AND set waiting_for_file
     await event.respond("Vui lòng gửi file chứa cookie (cookies.txt).", buttons=[Button.inline("Dừng Share", b"stop_share")])
-    message_queue.put((process_cookie_file, event)) #Correctly add to queue
+    # NO message_queue.put here! We wait for the file in handle_all_messages
+
 
 
 @bot.on(events.CallbackQuery(data=b"stop_share"))
@@ -220,7 +221,7 @@ async def reset_command(event):
 async def handle_all_messages(event):
     chat_id = event.chat_id
     # Only proceed if this chat is in the process of a /share session
-    if chat_id in share_data and 'waiting_for_file' in share_data[chat_id]:
+    if chat_id in share_data and share_data[chat_id].get('waiting_for_file'): # Safely check for the key
         if event.message.media:
             # Check if it's a document (file)
             if hasattr(event.message.media, 'document'):
@@ -228,13 +229,14 @@ async def handle_all_messages(event):
                 is_valid_file = False
                 for attribute in event.message.media.document.attributes:
                     if isinstance(attribute, DocumentAttributeFilename):
-                        # Basic filename check (you can make this more robust)
+                        # Basic filename check
                         if attribute.file_name.endswith('.txt'):
                            is_valid_file = True
-                           break # Exit inner loop once name is validated
+                           break
 
                 if is_valid_file:
                     message_queue.put((process_cookie_file, event)) # Put in queue
+                    # We DO NOT remove waiting_for_file here; it's done in process_cookie_file
                 else:
                      await event.reply("Vui lòng gửi file cookie có định dạng .txt.")
             else:
@@ -249,12 +251,15 @@ async def process_cookie_file(event):
         file_content = await bot.download_file(event.message.media)
         if not file_content:
             await event.reply("File không hợp lệ hoặc không có nội dung. Vui lòng gửi lại file cookie (cookies.txt).")
-            return  # Exit early
+            # DO NOT return; re-set waiting_for_file and re-prompt
+            share_data[chat_id]['waiting_for_file'] = True
+            await event.respond("Vui lòng gửi lại file chứa cookie (cookies.txt).")
+            return # Ensure the function exits here
 
         file_content = file_content.decode('utf-8').splitlines()
 
         share_data[chat_id]['cookie_file'] = file_content
-        # Remove waiting_for_file flag.
+        # NOW we remove waiting_for_file.
         del share_data[chat_id]['waiting_for_file']
         await event.respond("Đã nhận file cookie. Vui lòng nhập ID bài viết cần share.")
         message_queue.put((process_id, event))
@@ -262,7 +267,9 @@ async def process_cookie_file(event):
     except Exception as e:
         await event.reply(f"Lỗi khi xử lý file: {e}")
         if chat_id in share_data:
-            del share_data[chat_id]
+             # Reset waiting_for_file on error, too, so the user can try again
+            if 'waiting_for_file' in share_data[chat_id]: # Check before deleting
+                del share_data[chat_id]['waiting_for_file']
 
 
 
@@ -300,7 +307,7 @@ async def process_total_shares(event):
     total_share_limit_str = event.message.text.strip()
     try:
         total_share_limit = int(total_share_limit_str)
-        if total_share_limit < 0:
+        if delay < 0:
             raise ValueError
     except ValueError:
         await event.reply("Số lượng share không hợp lệ.  Vui lòng nhập lại tổng số lượng share (0 để không giới hạn) là một số dương.")
