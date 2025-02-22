@@ -71,6 +71,9 @@ stop_sharing_flags = {}  # {user_id: True/False}
 share_data = {} # {user_id: {cookie_file: [], id_share: str, delay: int, total_share_limit: int}}
 # message_queue = queue.Queue() # Removed
 
+# ---  VIP USER IDs ---
+VIP_USER_IDS = {123456789, 987654321}  # Thêm các user ID VIP vào đây
+
 
 # --- Hàm hỗ trợ ---
 
@@ -234,10 +237,14 @@ def share_command(message):
         bot.reply_to(message, "Lệnh /share chỉ hoạt động trong các cuộc trò chuyện riêng tư. Vui lòng nhắn tin trực tiếp cho bot.")
         return
 
-    # Kiểm tra giới hạn hàng ngày
-    if user_id in share_counts and share_counts[user_id] >= DAILY_SHARE_LIMIT:
-        bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai.")
+    # Kiểm tra giới hạn hàng ngày và VIP
+    if user_id not in VIP_USER_IDS and user_id in share_counts and share_counts[user_id] >= DAILY_SHARE_LIMIT:
+        bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
         return
+
+    # Thông báo cho người dùng VIP
+    if user_id in VIP_USER_IDS:
+        bot.send_message(message.chat.id, "Bạn là người dùng VIP, không có giới hạn chia sẻ hàng ngày.")
 
     # Khởi tạo dữ liệu chia sẻ
     share_data[user_id] = {}
@@ -355,9 +362,10 @@ def start_sharing(user_id):
 
     bot.send_message(chat_id, f"Tìm thấy {total_live} token hợp lệ.")
 
-    # Khởi tạo hoặc đặt lại số lượt đếm hàng ngày
-    if user_id not in share_counts or reset_times.get(user_id) != datetime.now(VN_TIMEZONE).date():
-        reset_user_data(user_id)
+    # Khởi tạo hoặc đặt lại số lượt đếm hàng ngày, trừ VIP
+    if user_id not in VIP_USER_IDS and (user_id not in share_counts or reset_times.get(user_id) != datetime.now(VN_TIMEZONE).date()):
+          reset_user_data(user_id)
+
 
     stt = 0
     shared_count = 0
@@ -371,8 +379,9 @@ def start_sharing(user_id):
                 continue_sharing = False
                 break
 
-            if share_counts.get(user_id, 0) >= DAILY_SHARE_LIMIT:
-                bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai.")
+            # Kiểm tra giới hạn hàng ngày, trừ VIP
+            if user_id not in VIP_USER_IDS and share_counts.get(user_id, 0) >= DAILY_SHARE_LIMIT:
+                bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
                 continue_sharing = False
                 break
 
@@ -380,7 +389,9 @@ def start_sharing(user_id):
             success = share_thread_telegram(tach, id_share, user_id)  # Truyền user_id
             if success:
                 successful_shares += 1
-                share_counts[user_id] = share_counts.get(user_id, 0) + 1  # Tăng số lượt đếm
+                # Tăng số lượt đếm, trừ VIP
+                if user_id not in VIP_USER_IDS:
+                    share_counts[user_id] = share_counts.get(user_id, 0) + 1
             time.sleep(delay)
             shared_count += 1
 
