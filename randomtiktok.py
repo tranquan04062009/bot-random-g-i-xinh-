@@ -8,6 +8,7 @@ import random
 from time import strftime
 from datetime import datetime, timedelta
 from telethon import TelegramClient, events, sync, Button
+from telethon.tl.functions.users import GetFullUserRequest
 from queue import Queue
 from faker import Faker  # For more advanced fingerprinting
 
@@ -162,21 +163,34 @@ message_queue = Queue()
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
+    # Works in both private chats and groups
     await event.respond("Chào mừng! Sử dụng /share để bắt đầu.")
+
 
 @bot.on(events.NewMessage(pattern='/share'))
 async def share_command(event):
     chat_id = event.chat_id
+    user_id = event.sender_id
 
-    # Check if daily limit is reached
+    # Check if the message is from a group or channel
+    if event.is_group or event.is_channel:
+        user = await bot.get_entity(user_id)
+        first_name = user.first_name if user.first_name else "User"  # Handle users without first names
+        await event.respond(
+            f"@{first_name}, vui lòng chat riêng với bot để sử dụng tính năng /share.",
+            buttons=[Button.url("Chat Riêng", f"https://t.me/{bot.me.username}")]
+        )
+        return
+
+    # --- Rest of the /share logic (for private chats) ---
     if chat_id in share_counts and share_counts[chat_id] >= DAILY_SHARE_LIMIT:
         await event.respond(f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
         return
 
     share_data[chat_id] = {}  # Initialize data for the user
-    # Create a stop button
     await event.respond("Vui lòng gửi file chứa cookie (cookies.txt).", buttons=[Button.inline("Dừng Share", b"stop_share")])
-    message_queue.put((process_cookie_file, event)) # Add to queue
+    message_queue.put((process_cookie_file, event))
+
 
 @bot.on(events.CallbackQuery(data=b"stop_share"))
 async def stop_share_callback(event):
@@ -189,6 +203,15 @@ async def stop_share_callback(event):
 @bot.on(events.NewMessage(pattern='/reset'))
 async def reset_command(event):
     chat_id = event.chat_id
+      # Check if the message is from a group or channel
+    if event.is_group or event.is_channel:
+        user = await bot.get_entity(event.sender_id)
+        first_name = user.first_name if user.first_name else "User"
+        await event.respond(
+            f"@{first_name}, vui lòng chat riêng với bot để sử dụng tính năng /reset.",
+            buttons=[Button.url("Chat Riêng", f"https://t.me/{bot.me.username}")]
+        )
+        return
     try:
         # Clear relevant data structures
         share_counts[chat_id] = 0
@@ -211,7 +234,12 @@ async def process_cookie_file(event):
             return
 
         file_content = await bot.download_file(event.message.media)
+        if not file_content: #Check if file content is valid
+            await event.reply("File không hợp lệ hoặc không có nội dung. Vui lòng gửi lại file cookie (cookies.txt).")
+            message_queue.put((process_cookie_file,event))
+            return
         file_content = file_content.decode('utf-8').splitlines()
+
 
         share_data[chat_id]['cookie_file'] = file_content
         await event.respond("Đã nhận file cookie. Vui lòng nhập ID bài viết cần share.")
