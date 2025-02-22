@@ -8,9 +8,9 @@ import random
 from time import strftime
 import telebot
 from telebot import types
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import queue
-from faker import Faker  # Import Faker for fingerprinting
+from faker import Faker
 
 # Thay thế bằng token bot Telegram của bạn
 BOT_TOKEN = "7903504769:AAFeKxomzBB-QtDzwOXojBofz9vju2CsDKc"  # Thay thế bằng token thật của bạn
@@ -20,7 +20,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 fake = Faker()
 fake_vi = Faker('vi_VN')  # Phiên bản tiếng Việt
 
-# Danh sách user agents (mở rộng)
+# Danh sách user agents (mở rộng, giữ nguyên từ phiên bản trước)
 user_agents = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
@@ -59,19 +59,20 @@ user_agents = [
     "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
 ]
 
-# Cờ dừng chia sẻ cho mỗi cuộc trò chuyện
-stop_sharing_flags = {}
-
-# Giới hạn chia sẻ hàng ngày
+# --- Hằng số ---
 DAILY_SHARE_LIMIT = 5000
+VN_TIMEZONE = timezone(timedelta(hours=7))  # Múi giờ Việt Nam (GMT+7)
 
-# Theo dõi số lượt chia sẻ trên mỗi ID cuộc trò chuyện
-share_counts = {}  # {chat_id: count}
-reset_times = {}   # {chat_id: datetime}
+# --- Cấu trúc dữ liệu ---
+# Dữ liệu cho mỗi người dùng
+share_counts = {}  # {user_id: count}
+reset_times = {}  # {user_id: datetime}
+stop_sharing_flags = {}  # {user_id: True/False}
+share_data = {} # {user_id: {cookie_file: [], id_share: str, delay: int, total_share_limit: int}}
+message_queue = queue.Queue()
 
-gome_token = []
 
-# --- Định nghĩa hàm ---
+# --- Hàm hỗ trợ ---
 
 def get_random_headers():
     """Tạo header ngẫu nhiên, bao gồm fingerprint trình duyệt."""
@@ -94,31 +95,37 @@ def get_random_headers():
     return headers
 
 def get_token(input_file):
-    local_gome_token = []
+    """Lấy token hợp lệ từ danh sách cookie."""
+    valid_tokens = []
     for cookie in input_file:
         cookie = cookie.strip()
-        if not cookie:
+        if not cookie:  # Bỏ qua dòng trống
             continue
 
         headers = get_random_headers()
         headers['cookie'] = cookie
 
         try:
-            home_business = requests.get('https://business.facebook.com/content_management', headers=headers, timeout=15).text
+            response = requests.get('https://business.facebook.com/content_management', headers=headers, timeout=15)
+            response.raise_for_status()  # Phát sinh lỗi HTTPError nếu có lỗi (4xx hoặc 5xx)
+            home_business = response.text
+
             if 'EAAG' in home_business:
                 token = home_business.split('EAAG')[1].split('","')[0]
                 cookie_token = f'{cookie}|EAAG{token}'
-                local_gome_token.append(cookie_token)
+                valid_tokens.append(cookie_token)
             else:
                 print(f"[!] Không thể lấy token từ cookie: {cookie[:50]}... Cookie có thể không hợp lệ.")
         except requests.exceptions.RequestException as e:
-            print(f"[!] Lỗi khi lấy token cho cookie: {cookie[:50]}... {e}")
+            print(f"[!] Lỗi khi lấy token cho cookie: {cookie[:50]}... Lỗi request: {e}")
         except Exception as e:
-             print(f"[!] Lỗi không mong muốn khi lấy token cho cookie: {cookie[:50]}... {e}")
-    return local_gome_token
+            print(f"[!] Lỗi không mong muốn khi lấy token cho cookie: {cookie[:50]}...: {e}")
+    return valid_tokens
+
 
 
 def share(tach, id_share):
+    """Chia sẻ bài viết sử dụng cookie và token đã cho."""
     cookie = tach.split('|')[0]
     token = tach.split('|')[1]
 
@@ -134,11 +141,14 @@ def share(tach, id_share):
     })
 
     try:
-        res = requests.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_share}&published=0&access_token={token}', headers=headers, timeout=10).json()
-        if 'id' in res:
+        res = requests.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_share}&published=0&access_token={token}', headers=headers, timeout=10)
+        res.raise_for_status()
+        response_json = res.json()
+
+        if 'id' in response_json:
             return True
         else:
-            print(f"[!] Chia sẻ thất bại: ID: {id_share} - Phản hồi: {res}")
+            print(f"[!] Chia sẻ thất bại: ID: {id_share} - Phản hồi: {response_json}")
             return False
     except requests.exceptions.RequestException as e:
         print(f"[!] Lỗi request chia sẻ: ID: {id_share} - {e}")
@@ -148,144 +158,158 @@ def share(tach, id_share):
         return False
 
 
-def share_thread_telegram(tach, id_share, chat_id):
-    if stop_sharing_flags.get(chat_id, False):
+
+def share_thread_telegram(tach, id_share, user_id):
+    """Chia sẻ bài viết, kiểm tra cờ dừng."""
+    if stop_sharing_flags.get(user_id, False):
         return False
     return share(tach, id_share)
 
 
+def reset_user_data(user_id):
+    """Đặt lại dữ liệu chia sẻ cho một người dùng cụ thể."""
+    if user_id in share_data:
+        del share_data[user_id]
+    if user_id in stop_sharing_flags:
+        stop_sharing_flags[user_id] = False
+    if user_id in share_counts:
+        share_counts[user_id] = 0
+    reset_times[user_id] = datetime.now(VN_TIMEZONE).date()
 
-# --- Telegram Bot Handlers ---
-share_data = {}
-
-message_queue = queue.Queue()
+# --- Bộ xử lý Bot Telegram ---
 
 def handle_message(message):
-    """Handles a single message from the queue."""
-    # Only process messages in private chats, OR commands in groups
+    """Xử lý một tin nhắn, định tuyến dựa trên loại nội dung và trạng thái."""
     if message.chat.type == 'private' or (message.chat.type in ['group', 'supergroup', 'channel'] and message.text.startswith('/')):
         if message.content_type == 'text':
             if message.text.startswith('/'):
-                command_handler(message)
+                command_handler(message)  # Luôn xử lý lệnh
             else:
-                chat_id = message.chat.id
-                if chat_id in share_data:
-                    if 'cookie_file' not in share_data[chat_id]:
+                # Tin nhắn văn bản trong cuộc trò chuyện riêng tư, ở trạng thái chính xác
+                user_id = message.from_user.id
+                if user_id in share_data:
+                    if 'cookie_file' not in share_data[user_id]:
                         bot.reply_to(message, "Vui lòng gửi file cookie trước.")
-                        return
-                    elif 'id_share' not in share_data[chat_id]:
+                    elif 'id_share' not in share_data[user_id]:
                         process_id(message)
-                    elif 'delay' not in share_data[chat_id]:
+                    elif 'delay' not in share_data[user_id]:
                         process_delay(message)
-                    elif 'total_share_limit' not in share_data[chat_id]:
+                    elif 'total_share_limit' not in share_data[user_id]:
                         process_total_shares(message)
-                # Removed the "else" here. No response in group chats without a command.
 
         elif message.content_type == 'document':
-            chat_id = message.chat.id
-            if chat_id in share_data and 'cookie_file' not in share_data[chat_id]:
-                 process_cookie_file(message)
-            # No "else" here either.  No response to documents in a group.
+             # Tải lên tài liệu, chỉ trong cuộc trò chuyện riêng tư, đang chờ cookie
+            user_id = message.from_user.id
+            if message.chat.type == 'private' and user_id in share_data and 'cookie_file' not in share_data[user_id]:
+                    process_cookie_file(message)
 
 
 def command_handler(message):
-    """Handles commands."""
-    if message.text.startswith('/start'):
-        start(message)
-    elif message.text.startswith('/share'):
-        share_command(message)
-    elif message.text.startswith('/reset'):
-        reset_command(message)
+    """Xử lý các lệnh (/start, /share, /reset)."""
+    try:
+        if message.text.startswith('/start'):
+            start(message)
+        elif message.text.startswith('/share'):
+            share_command(message)
+        elif message.text.startswith('/reset'):
+            reset_command(message)
+    except Exception as e:
+        bot.reply_to(message, f"Đã xảy ra lỗi khi xử lý lệnh của bạn: {e}")
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "Chào mừng! Sử dụng /share để bắt đầu.")
+    """Xử lý lệnh /start."""
+    bot.reply_to(message, "Chào mừng! Sử dụng /share để bắt đầu chia sẻ.")
 
 @bot.message_handler(commands=['share'])
 def share_command(message):
-    chat_id = message.chat.id
+    """Xử lý lệnh /share."""
     user_id = message.from_user.id
 
-    if message.chat.type in ['group', 'supergroup', 'channel']:
-        bot.reply_to(message, "Lệnh /share chỉ hoạt động trong chat riêng. Vui lòng nhắn tin riêng cho bot để tiếp tục.")
+    # Bắt buộc trò chuyện riêng tư cho /share
+    if message.chat.type != 'private':
+        bot.reply_to(message, "Lệnh /share chỉ hoạt động trong các cuộc trò chuyện riêng tư. Vui lòng nhắn tin trực tiếp cho bot.")
         return
 
-    if chat_id in share_counts and share_counts[chat_id] >= DAILY_SHARE_LIMIT:
-        bot.reply_to(message, f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} lượt chia sẻ hàng ngày. Vui lòng thử lại sau.")
+    # Kiểm tra giới hạn hàng ngày
+    if user_id in share_counts and share_counts[user_id] >= DAILY_SHARE_LIMIT:
+        bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai.")
         return
 
-    share_data[chat_id] = {}
+    # Khởi tạo dữ liệu chia sẻ
+    share_data[user_id] = {}
     markup = types.InlineKeyboardMarkup()
-    stop_button = types.InlineKeyboardButton("Dừng Chia sẻ", callback_data="stop_share")
+    stop_button = types.InlineKeyboardButton("Dừng Chia Sẻ", callback_data="stop_share")
     markup.add(stop_button)
-    bot.send_message(chat_id, "Vui lòng gửi file chứa cookie (cookies.txt).", reply_markup=markup)
+    bot.send_message(message.chat.id, "Vui lòng gửi file cookie (cookies.txt).", reply_markup=markup)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "stop_share")
 def stop_share_callback(call):
-    chat_id = call.message.chat.id
-    stop_sharing_flags[chat_id] = True
-    bot.send_message(chat_id, "Đã nhận lệnh dừng chia sẻ. Vui lòng chờ quá trình hoàn tất.")
+    """Xử lý sự kiện nhấn nút 'Dừng Chia sẻ'."""
+    user_id = call.from_user.id
+    stop_sharing_flags[user_id] = True
+    bot.send_message(call.message.chat.id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.")
+
 
 @bot.message_handler(commands=['reset'])
 def reset_command(message):
-    chat_id = message.chat.id
-    try:
-        if chat_id in share_data:
-            del share_data[chat_id]
-        if chat_id in stop_sharing_flags:
-            stop_sharing_flags[chat_id] = False
-        if chat_id in share_counts:
-            share_counts[chat_id] = 0
-        if chat_id in reset_times:
-            reset_times[chat_id] = datetime.now().date()
-        gome_token.clear()
-        bot.reply_to(message, "Bot đã được khởi động lại.")
-    except Exception as e:
-        bot.reply_to(message, f"Có lỗi xảy ra khi đặt lại bot: {e}")
+    """Xử lý lệnh /reset."""
+    user_id = message.from_user.id
+    reset_user_data(user_id)  # Sử dụng hàm hỗ trợ
+    bot.reply_to(message, "Bot đã được đặt lại cho bạn.")
+
+
 
 
 def process_cookie_file(message):
+    """Xử lý file cookie đã tải lên."""
+    user_id = message.from_user.id
     chat_id = message.chat.id
     try:
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         file_content = downloaded_file.decode('utf-8').splitlines()
-        share_data[chat_id]['cookie_file'] = file_content
+        share_data[user_id]['cookie_file'] = file_content
         bot.send_message(chat_id, "Đã nhận file cookie. Vui lòng nhập ID bài viết cần chia sẻ.")
     except Exception as e:
         bot.reply_to(message, f"Lỗi khi xử lý file: {e}")
-        if chat_id in share_data:
-            del share_data[chat_id]
+        reset_user_data(user_id)  # Đặt lại nếu có lỗi
+
 
 def process_id(message):
+    """Xử lý ID bài viết."""
+    user_id = message.from_user.id
     chat_id = message.chat.id
     id_share = message.text.strip()
     if not id_share.isdigit():
-        bot.reply_to(message, "ID không hợp lệ. Vui lòng nhập lại ID bài viết cần chia sẻ.")
+        bot.reply_to(message, "ID không hợp lệ. Vui lòng nhập lại ID bài viết.")
         return
 
-    share_data[chat_id]['id_share'] = id_share
-    bot.send_message(chat_id, "Vui lòng nhập độ trễ giữa các lần chia sẻ (giây).")
-
+    share_data[user_id]['id_share'] = id_share
+    bot.send_message(chat_id, "Vui lòng nhập độ trễ giữa các lần chia sẻ (tính bằng giây).")
 
 
 def process_delay(message):
+    """Xử lý độ trễ."""
+    user_id = message.from_user.id
     chat_id = message.chat.id
     delay_str = message.text.strip()
     try:
         delay = int(delay_str)
         if delay < 0:
-              raise ValueError
+            raise ValueError
     except ValueError:
-        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập lại độ trễ (giây) là một số dương.")
+        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số dương.")
         return
 
-    share_data[chat_id]['delay'] = delay
-    bot.send_message(chat_id, "Vui lòng nhập tổng số lượng chia sẻ (0 để không giới hạn).")
+    share_data[user_id]['delay'] = delay
+    bot.send_message(chat_id, "Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn).")
 
 
 def process_total_shares(message):
+    """Xử lý giới hạn tổng số lượt chia sẻ."""
+    user_id = message.from_user.id
     chat_id = message.chat.id
     total_share_limit_str = message.text.strip()
     try:
@@ -293,20 +317,24 @@ def process_total_shares(message):
         if total_share_limit < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Số lượng chia sẻ không hợp lệ. Vui lòng nhập lại tổng số lượng chia sẻ (0 để không giới hạn) là một số dương.")
+        bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn) là một số dương.")
         return
 
-    share_data[chat_id]['total_share_limit'] = total_share_limit
+    share_data[user_id]['total_share_limit'] = total_share_limit
     markup = types.InlineKeyboardMarkup()
     stop_button = types.InlineKeyboardButton("Dừng Chia sẻ", callback_data="stop_share")
     markup.add(stop_button)
     bot.send_message(chat_id, "Bắt đầu chia sẻ...", reply_markup=markup)
-    start_sharing(chat_id)
+    start_sharing(user_id)
 
-def start_sharing(chat_id):
-    data = share_data.get(chat_id)
+
+
+def start_sharing(user_id):
+    """Bắt đầu quá trình chia sẻ."""
+    chat_id = bot.get_chat(user_id).id # Cần chat id để gửi tin nhắn
+    data = share_data.get(user_id)
     if not data:
-        bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại bằng lệnh /share.")
+        bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với /share.")
         return
 
     input_file = data['cookie_file']
@@ -319,41 +347,37 @@ def start_sharing(chat_id):
 
     if total_live == 0:
         bot.send_message(chat_id, "Không tìm thấy token hợp lệ nào.")
-        if chat_id in share_data:
-            del share_data[chat_id]
+        reset_user_data(user_id)
         return
 
     bot.send_message(chat_id, f"Tìm thấy {total_live} token hợp lệ.")
 
-    if chat_id not in share_counts:
-        share_counts[chat_id] = 0
-        reset_times[chat_id] = datetime.now().date()
-    else:
-        if reset_times[chat_id] < datetime.now().date():
-            share_counts[chat_id] = 0
-            reset_times[chat_id] = datetime.now().date()
+    # Khởi tạo hoặc đặt lại số lượt đếm hàng ngày
+    if user_id not in share_counts or reset_times.get(user_id) != datetime.now(VN_TIMEZONE).date():
+        reset_user_data(user_id)
 
     stt = 0
     shared_count = 0
     successful_shares = 0
     continue_sharing = True
-    stop_sharing_flags[chat_id] = False
+    stop_sharing_flags[user_id] = False
+
     while continue_sharing:
         for tach in all_tokens:
-            if stop_sharing_flags.get(chat_id, False):
+            if stop_sharing_flags.get(user_id, False):
                 continue_sharing = False
                 break
 
-            if share_counts[chat_id] >= DAILY_SHARE_LIMIT:
-                bot.send_message(chat_id, f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} lượt chia sẻ hàng ngày. Vui lòng thử lại sau.")
+            if share_counts.get(user_id, 0) >= DAILY_SHARE_LIMIT:
+                bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai.")
                 continue_sharing = False
                 break
 
             stt += 1
-            success = share_thread_telegram(tach, id_share, chat_id)
+            success = share_thread_telegram(tach, id_share, user_id)  # Truyền user_id
             if success:
                 successful_shares += 1
-                share_counts[chat_id] += 1
+                share_counts[user_id] = share_counts.get(user_id, 0) + 1  # Tăng số lượt đếm
             time.sleep(delay)
             shared_count += 1
 
@@ -361,35 +385,33 @@ def start_sharing(chat_id):
                 continue_sharing = False
                 break
 
-
     bot.send_message(chat_id, "Quá trình chia sẻ hoàn tất.")
     if total_share_limit > 0 and shared_count >= total_share_limit:
-        bot.send_message(chat_id, f"Đạt giới hạn chia sẻ là {total_share_limit} lượt chia sẻ.")
-    bot.send_message(chat_id, f"Tổng cộng {successful_shares} lượt chia sẻ thành công.")
+        bot.send_message(chat_id, f"Đã đạt đến giới hạn chia sẻ là {total_share_limit} lượt.")
+    bot.send_message(chat_id, f"Tổng số lượt chia sẻ thành công: {successful_shares}.")
+    reset_user_data(user_id)
 
-    if chat_id in share_data:
-        del share_data[chat_id]
-    gome_token.clear()
-    stop_sharing_flags[chat_id] = False
 
-# --- Main Loop and Queue Processing ---
+# --- Xử lý hàng đợi và Vòng lặp chính ---
+
 def process_queue():
-    """Processes messages from the queue in a separate thread."""
+    """Xử lý tin nhắn từ hàng đợi."""
     while True:
         message = message_queue.get()
         try:
             handle_message(message)
         except Exception as e:
-            print(f"An error occurred: {e}")  # Log the error, don't message the user
+            print(f"Đã xảy ra lỗi khi xử lý tin nhắn: {e}")  # Ghi lỗi
         finally:
             message_queue.task_done()
 
+# Bắt đầu luồng xử lý hàng đợi
 queue_thread = threading.Thread(target=process_queue, daemon=True)
 queue_thread.start()
 
 @bot.message_handler(func=lambda message: True, content_types=['text', 'document'])
 def enqueue_message(message):
-    """Adds incoming messages to the queue."""
+    """Thêm tin nhắn đến vào hàng đợi."""
     message_queue.put(message)
 
 if __name__ == "__main__":
