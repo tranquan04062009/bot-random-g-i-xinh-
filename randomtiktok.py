@@ -303,7 +303,7 @@ def process_delay(message):
         if delay < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số dương.")
+        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số.")
         return
 
     share_data[user_id]['delay'] = delay
@@ -320,7 +320,7 @@ def process_total_shares(message):
         if total_share_limit < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn) là một số dương.")
+        bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn) là một số.")
         return
 
     share_data[user_id]['total_share_limit'] = total_share_limit
