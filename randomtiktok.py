@@ -13,7 +13,7 @@ import queue
 from faker import Faker  # Import Faker for fingerprinting
 
 # Thay thế bằng token bot Telegram của bạn
-BOT_TOKEN = "7903504769:AAEMX3AUeOgGXvHNMQ5x7T7XcewuK90quNQ"  # Thay thế bằng token thật của bạn
+BOT_TOKEN = "7903504769:AAFeKxomzBB-QtDzwOXojBofz9vju2CsDKc"  # Thay thế bằng token thật của bạn
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Khởi tạo Faker (cho nhiều ngôn ngữ)
