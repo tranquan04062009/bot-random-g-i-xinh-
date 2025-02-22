@@ -9,13 +9,15 @@ from time import strftime
 from datetime import datetime, timedelta
 from telethon import TelegramClient, events, sync, Button
 from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.types import DocumentAttributeFilename  # Import for filename checking
 from queue import Queue
-from faker import Faker  # For more advanced fingerprinting
+from faker import Faker
+
 
 
 # --- REQUIRED: Telegram API ID and Hash ---
-API_ID = 22656641  # Replace with your API ID
-API_HASH = '8bb9b539dd910e0b033c6637b9788e90'  # Replace with your API Hash.  DO NOT SHARE THIS!
+API_ID = 22656641
+API_HASH = '8bb9b539dd910e0b033c6637b9788e90'
 
 # Replace with your Telegram bot token
 BOT_TOKEN = "7903504769:AAEMX3AUeOgGXvHNMQ5x7T7XcewuK90quNQ"
@@ -32,13 +34,12 @@ def generate_fingerprint():
     profile = fake.simple_profile()  # Get a basic user profile
     user_agent = fake.user_agent()  # Get a random user agent
 
-    # More advanced fingerprinting attributes (can be expanded)
+    # More advanced fingerprinting attributes
     platform = random.choice(["Windows NT 10.0; Win64; x64", "Macintosh; Intel Mac OS X 10_15_7", "X11; Linux x86_64"])
     accept_language = fake.locale().replace("_", "-")  # e.g., en-US, fr-FR
     screen_width = random.choice([1920, 1366, 1280, 1600])
     screen_height = random.choice([1080, 768, 800, 900])
     color_depth = random.choice([24, 32])
-    # Example: Add more detailed platform information based on user-agent
     if "Windows" in user_agent:
           platform = random.choice(["Windows NT 10.0; Win64; x64; rv:122.0",
                                    "Windows NT 10.0; Win64; x64",
@@ -59,7 +60,6 @@ def generate_fingerprint():
         'screen_width': screen_width,
         'screen_height': screen_height,
         'color_depth': color_depth,
-        # Add other fingerprinting attributes as needed (e.g., WebGL, Canvas, etc.)
     }
     return fingerprint
 
@@ -82,24 +82,24 @@ def get_token(input_file):
         cookie = cookie.strip()
         if not cookie:
             continue
-        fingerprint = generate_fingerprint() # Generate a new fingerprint
+        fingerprint = generate_fingerprint()
 
         header_ = {
             'authority': 'business.facebook.com',
             'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-            'accept-language': fingerprint['accept_language'], # Use the generated language
+            'accept-language': fingerprint['accept_language'],
             'cache-control': 'max-age=0',
             'cookie': cookie,
             'referer': 'https://www.facebook.com/',
-            'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',  #This can also be randomized
-            'sec-ch-ua-mobile': '?0',  # Consistent with desktop user agents
-            'sec-ch-ua-platform': f'"{fingerprint["platform"].split(";")[0]}"',  # Extract platform
+            'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': f'"{fingerprint["platform"].split(";")[0]}"',
             'sec-fetch-dest': 'document',
             'sec-fetch-mode': 'navigate',
             'sec-fetch-site': 'same-origin',
             'sec-fetch-user': '?1',
             'upgrade-insecure-requests': '1',
-            'user-agent': fingerprint['user_agent'], # Use generated User-Agent
+            'user-agent': fingerprint['user_agent'],
         }
         try:
             home_business = requests.get('https://business.facebook.com/content_management', headers=header_, timeout=15).text
@@ -118,7 +118,7 @@ def get_token(input_file):
 def share(tach, id_share):
     cookie = tach.split('|')[0]
     token = tach.split('|')[1]
-    fingerprint = generate_fingerprint()  # Generate a new fingerprint for each share
+    fingerprint = generate_fingerprint()
 
     he = {
         'accept': '*/*',
@@ -148,62 +148,54 @@ def share(tach, id_share):
 
 def share_thread_telegram(tach, id_share, chat_id):
     if stop_sharing_flags.get(chat_id, False):
-        return False # Stop sharing
+        return False
     if share(tach, id_share):
         return True
     else:
         return False
 
 
-# Telegram Bot Handlers
-share_data = {}  # Store user-specific data
-
 # --- Telethon Event Handlers ---
 message_queue = Queue()
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
-    # Works in both private chats and groups
     await event.respond("Chào mừng! Sử dụng /share để bắt đầu.")
-
 
 @bot.on(events.NewMessage(pattern='/share'))
 async def share_command(event):
     chat_id = event.chat_id
     user_id = event.sender_id
 
-    # Check if the message is from a group or channel
     if event.is_group or event.is_channel:
         user = await bot.get_entity(user_id)
-        first_name = user.first_name if user.first_name else "User"  # Handle users without first names
+        first_name = user.first_name if user.first_name else "User"
         await event.respond(
             f"@{first_name}, vui lòng chat riêng với bot để sử dụng tính năng /share.",
             buttons=[Button.url("Chat Riêng", f"https://t.me/{bot.me.username}")]
         )
         return
 
-    # --- Rest of the /share logic (for private chats) ---
     if chat_id in share_counts and share_counts[chat_id] >= DAILY_SHARE_LIMIT:
         await event.respond(f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
         return
 
-    share_data[chat_id] = {}  # Initialize data for the user
+    share_data[chat_id] = {}  # Initialize
     await event.respond("Vui lòng gửi file chứa cookie (cookies.txt).", buttons=[Button.inline("Dừng Share", b"stop_share")])
-    message_queue.put((process_cookie_file, event))
+    message_queue.put((process_cookie_file, event)) #Correctly add to queue
 
 
 @bot.on(events.CallbackQuery(data=b"stop_share"))
 async def stop_share_callback(event):
     chat_id = event.chat_id
-    stop_sharing_flags[chat_id] = True  # Set the stop flag
+    stop_sharing_flags[chat_id] = True
     await event.respond("Đã nhận lệnh dừng share. Vui lòng chờ quá trình hoàn tất.")
-    await event.edit("Đã dừng chia sẻ.") # Acknowledge the button press
+    await event.edit("Đã dừng chia sẻ.")
 
 
 @bot.on(events.NewMessage(pattern='/reset'))
 async def reset_command(event):
     chat_id = event.chat_id
-      # Check if the message is from a group or channel
     if event.is_group or event.is_channel:
         user = await bot.get_entity(event.sender_id)
         first_name = user.first_name if user.first_name else "User"
@@ -213,7 +205,6 @@ async def reset_command(event):
         )
         return
     try:
-        # Clear relevant data structures
         share_counts[chat_id] = 0
         reset_times[chat_id] = datetime.now().date()
         if chat_id in share_data:
@@ -224,30 +215,55 @@ async def reset_command(event):
         await event.respond(f"Có lỗi xảy ra khi reset bot: {e}")
 
 
+# --- File Handling - Improved ---
+@bot.on(events.NewMessage)
+async def handle_all_messages(event):
+    chat_id = event.chat_id
+    # Only proceed if this chat is in the process of a /share session
+    if chat_id in share_data and 'waiting_for_file' in share_data[chat_id]:
+        if event.message.media:
+            # Check if it's a document (file)
+            if hasattr(event.message.media, 'document'):
+                # Check for filename attribute (more reliable)
+                is_valid_file = False
+                for attribute in event.message.media.document.attributes:
+                    if isinstance(attribute, DocumentAttributeFilename):
+                        # Basic filename check (you can make this more robust)
+                        if attribute.file_name.endswith('.txt'):
+                           is_valid_file = True
+                           break # Exit inner loop once name is validated
+
+                if is_valid_file:
+                    message_queue.put((process_cookie_file, event)) # Put in queue
+                else:
+                     await event.reply("Vui lòng gửi file cookie có định dạng .txt.")
+            else:
+                await event.reply("Vui lòng gửi file cookie (cookies.txt).") #Not a document
+        else:
+            await event.reply("Vui lòng gửi file cookie (cookies.txt).") # Not media
 
 async def process_cookie_file(event):
     chat_id = event.chat_id
     try:
-        if not event.message.media:
-            await event.reply("Vui lòng gửi file cookie (cookies.txt).")
-            message_queue.put((process_cookie_file, event))  # Put back in the queue
-            return
-
+        # Download the file
         file_content = await bot.download_file(event.message.media)
-        if not file_content: #Check if file content is valid
+        if not file_content:
             await event.reply("File không hợp lệ hoặc không có nội dung. Vui lòng gửi lại file cookie (cookies.txt).")
-            message_queue.put((process_cookie_file,event))
-            return
+            return  # Exit early
+
         file_content = file_content.decode('utf-8').splitlines()
 
-
         share_data[chat_id]['cookie_file'] = file_content
+        # Remove waiting_for_file flag.
+        del share_data[chat_id]['waiting_for_file']
         await event.respond("Đã nhận file cookie. Vui lòng nhập ID bài viết cần share.")
         message_queue.put((process_id, event))
+
     except Exception as e:
         await event.reply(f"Lỗi khi xử lý file: {e}")
-        if chat_id in share_data:  # Check if exists before deleting
+        if chat_id in share_data:
             del share_data[chat_id]
+
 
 
 async def process_id(event):
@@ -255,7 +271,7 @@ async def process_id(event):
     id_share = event.message.text.strip()
     if not id_share.isdigit():
         await event.reply("ID không hợp lệ. Vui lòng nhập lại ID bài viết cần share.")
-        message_queue.put((process_id, event)) # Put back in queue for retry.
+        message_queue.put((process_id, event))
         return
 
     share_data[chat_id]['id_share'] = id_share
@@ -272,7 +288,7 @@ async def process_delay(event):
             raise ValueError
     except ValueError:
         await event.reply("Delay không hợp lệ. Vui lòng nhập lại delay (giây) là một số dương.")
-        message_queue.put((process_delay, event))  # Re-add to queue
+        message_queue.put((process_delay, event))
         return
 
     share_data[chat_id]['delay'] = delay
@@ -293,12 +309,11 @@ async def process_total_shares(event):
 
     share_data[chat_id]['total_share_limit'] = total_share_limit
     await event.respond("Bắt đầu share...", buttons=[Button.inline("Dừng Share", b"stop_share")])
-    start_sharing(chat_id)  # No 'await' here, as it blocks the event loop
+    start_sharing(chat_id)
 
 
 
 def start_sharing(chat_id):
-    # Run the actual sharing in a separate thread
     threading.Thread(target=share_task, args=(chat_id,)).start()
 
 
@@ -323,29 +338,25 @@ def share_task(chat_id):
 
     bot.send_message(chat_id, f"Tìm thấy {total_live} token hợp lệ.")
 
-
-    # Initialize or retrieve share count and reset time for this chat
     if chat_id not in share_counts:
         share_counts[chat_id] = 0
-        reset_times[chat_id] = datetime.now().date()  # Today's date
+        reset_times[chat_id] = datetime.now().date()
     else:
-        # Check if it's a new day, reset share count if needed
         if reset_times[chat_id] < datetime.now().date():
             share_counts[chat_id] = 0
             reset_times[chat_id] = datetime.now().date()
 
     stt = 0
     shared_count = 0
-    successful_shares = 0 # Track successful shares
+    successful_shares = 0
     continue_sharing = True
-    stop_sharing_flags[chat_id] = False  # Reset stop flag at start
+    stop_sharing_flags[chat_id] = False
     while continue_sharing:
         for tach in all_tokens:
             if stop_sharing_flags.get(chat_id, False):
                 continue_sharing = False
-                break  # Exit inner loop
+                break
 
-            # Check daily limit *before* attempting to share
             if share_counts[chat_id] >= DAILY_SHARE_LIMIT:
                 bot.send_message(chat_id, f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
                 continue_sharing = False
@@ -355,7 +366,7 @@ def share_task(chat_id):
             success = share_thread_telegram(tach, id_share, chat_id)
             if success:
                 successful_shares += 1
-                share_counts[chat_id] += 1  # Increment the count
+                share_counts[chat_id] += 1
             time.sleep(delay)
             shared_count += 1
 
@@ -367,12 +378,12 @@ def share_task(chat_id):
     bot.send_message(chat_id, "Quá trình share hoàn tất.")
     if total_share_limit > 0 and shared_count >= total_share_limit:
         bot.send_message(chat_id, f"Đạt giới hạn share là {total_share_limit} shares.")
-    bot.send_message(chat_id, f"Tổng cộng {successful_shares} share thành công.") # Final count
+    bot.send_message(chat_id, f"Tổng cộng {successful_shares} share thành công.")
 
-    if chat_id in share_data:  # Check before deleting
+    if chat_id in share_data:
         del share_data[chat_id]
     gome_token.clear()
-    stop_sharing_flags[chat_id] = False  # Reset
+    stop_sharing_flags[chat_id] = False
 
 def process_message_queue():
     while True:
@@ -380,14 +391,13 @@ def process_message_queue():
             handler, event = message_queue.get()
             bot.loop.run_until_complete(handler(event))
         else:
-            time.sleep(0.1)  # Check the queue periodically
+            time.sleep(0.1)
 
 if __name__ == "__main__":
     try:
         print("Bot is running...")
-        # Start the message queue processor in a separate thread
         queue_thread = threading.Thread(target=process_message_queue)
-        queue_thread.daemon = True  # Allow the program to exit even if the thread is running
+        queue_thread.daemon = True
         queue_thread.start()
 
         bot.run_until_disconnected()
