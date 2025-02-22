@@ -16,11 +16,11 @@ from faker import Faker
 BOT_TOKEN = "7903504769:AAFeKxomzBB-QtDzwOXojBofz9vju2CsDKc"  # Thay thế bằng token thật của bạn
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Khởi tạo Faker (cho nhiều ngôn ngữ)
+# Khởi tạo Faker
 fake = Faker()
 fake_vi = Faker('vi_VN')  # Phiên bản tiếng Việt
 
-# Danh sách user agents (mở rộng, giữ nguyên từ phiên bản trước)
+# Danh sách user agents (mở rộng)
 user_agents = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
@@ -69,7 +69,7 @@ share_counts = {}  # {user_id: count}
 reset_times = {}  # {user_id: datetime}
 stop_sharing_flags = {}  # {user_id: True/False}
 share_data = {} # {user_id: {cookie_file: [], id_share: str, delay: int, total_share_limit: int}}
-message_queue = queue.Queue()
+# message_queue = queue.Queue() # Removed
 
 
 # --- Hàm hỗ trợ ---
@@ -177,31 +177,34 @@ def reset_user_data(user_id):
     reset_times[user_id] = datetime.now(VN_TIMEZONE).date()
 
 # --- Bộ xử lý Bot Telegram ---
-
+@bot.message_handler(func=lambda message: True, content_types=['text', 'document'])
 def handle_message(message):
     """Xử lý một tin nhắn, định tuyến dựa trên loại nội dung và trạng thái."""
-    if message.chat.type == 'private' or (message.chat.type in ['group', 'supergroup', 'channel'] and message.text.startswith('/')):
-        if message.content_type == 'text':
-            if message.text.startswith('/'):
-                command_handler(message)  # Luôn xử lý lệnh
-            else:
-                # Tin nhắn văn bản trong cuộc trò chuyện riêng tư, ở trạng thái chính xác
-                user_id = message.from_user.id
-                if user_id in share_data:
-                    if 'cookie_file' not in share_data[user_id]:
-                        bot.reply_to(message, "Vui lòng gửi file cookie trước.")
-                    elif 'id_share' not in share_data[user_id]:
-                        process_id(message)
-                    elif 'delay' not in share_data[user_id]:
-                        process_delay(message)
-                    elif 'total_share_limit' not in share_data[user_id]:
-                        process_total_shares(message)
+    if not (message.chat.type == 'private' or (message.chat.type in ['group', 'supergroup', 'channel'] and message.text.startswith('/'))):
+        return  # Bỏ qua nếu không phải là tin nhắn riêng tư hoặc lệnh trong nhóm
 
-        elif message.content_type == 'document':
-             # Tải lên tài liệu, chỉ trong cuộc trò chuyện riêng tư, đang chờ cookie
-            user_id = message.from_user.id
-            if message.chat.type == 'private' and user_id in share_data and 'cookie_file' not in share_data[user_id]:
-                    process_cookie_file(message)
+    user_id = message.from_user.id
+
+    if message.content_type == 'document':
+        # Xử lý tài liệu *trước* nếu đang trong quá trình /share
+        if message.chat.type == 'private' and user_id in share_data and 'cookie_file' not in share_data[user_id]:
+            process_cookie_file(message)
+            return  # Quan trọng: return ở đây để không xử lý tin nhắn văn bản sau khi đã nhận file
+
+    elif message.content_type == 'text':
+        if message.text.startswith('/'):
+            command_handler(message)  # Luôn xử lý lệnh
+        elif user_id in share_data:
+            # Xử lý tin nhắn văn bản nếu đang trong quá trình /share
+            if 'cookie_file' not in share_data[user_id]:
+                bot.reply_to(message, "Vui lòng gửi file cookie trước.")
+            elif 'id_share' not in share_data[user_id]:
+                process_id(message)
+            elif 'delay' not in share_data[user_id]:
+                process_delay(message)
+            elif 'total_share_limit' not in share_data[user_id]:
+                process_total_shares(message)
+
 
 
 def command_handler(message):
@@ -257,7 +260,7 @@ def reset_command(message):
     """Xử lý lệnh /reset."""
     user_id = message.from_user.id
     reset_user_data(user_id)  # Sử dụng hàm hỗ trợ
-    bot.reply_to(message, "Bot đã được reset cho bạn.")
+    bot.reply_to(message, "Bot đã được đặt lại cho bạn.")
 
 
 
@@ -300,11 +303,11 @@ def process_delay(message):
         if delay < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số.")
+        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số dương.")
         return
 
     share_data[user_id]['delay'] = delay
-    bot.send_message(chat_id, "Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn chỉ dành cho admin muốn biết thêm liên hệ admin).")
+    bot.send_message(chat_id, "Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn).")
 
 
 def process_total_shares(message):
@@ -317,7 +320,7 @@ def process_total_shares(message):
         if total_share_limit < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ là một số.")
+        bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn) là một số dương.")
         return
 
     share_data[user_id]['total_share_limit'] = total_share_limit
@@ -334,7 +337,7 @@ def start_sharing(user_id):
     chat_id = bot.get_chat(user_id).id # Cần chat id để gửi tin nhắn
     data = share_data.get(user_id)
     if not data:
-        bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với lệnh /share.")
+        bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với /share.")
         return
 
     input_file = data['cookie_file']
@@ -392,32 +395,15 @@ def start_sharing(user_id):
     reset_user_data(user_id)
 
 
-# --- Xử lý hàng đợi và Vòng lặp chính ---
-
-def process_queue():
-    """Xử lý tin nhắn từ hàng đợi."""
-    while True:
-        message = message_queue.get()
-        try:
-            handle_message(message)
-        except Exception as e:
-            print(f"Đã xảy ra lỗi khi xử lý tin nhắn: {e}")  # Ghi lỗi
-        finally:
-            message_queue.task_done()
-
-# Bắt đầu luồng xử lý hàng đợi
-queue_thread = threading.Thread(target=process_queue, daemon=True)
-queue_thread.start()
-
-@bot.message_handler(func=lambda message: True, content_types=['text', 'document'])
-def enqueue_message(message):
-    """Thêm tin nhắn đến vào hàng đợi."""
-    message_queue.put(message)
+# ---  Vòng lặp chính ---
+# Removed queue processing functions
 
 if __name__ == "__main__":
-    try:
-        print("Bot đang chạy...")
-        bot.infinity_polling()
-    except KeyboardInterrupt:
-        print("Bot đã dừng.")
-        sys.exit()
+    print("Bot đang chạy...")
+    while True:
+        try:
+            # Sử dụng bot.polling() với timeout
+            bot.polling(timeout=10)  # Kiểm tra cập nhật mỗi 10 giây
+        except Exception as e:
+            print(f"Lỗi trong quá trình polling: {e}")
+            time.sleep(5)  # Đợi 5 giây trước khi thử lại
