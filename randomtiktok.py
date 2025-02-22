@@ -6,51 +6,57 @@ import time
 import json
 import random
 from time import strftime
-import telebot
-from telebot import types
 from datetime import datetime, timedelta
+from telethon import TelegramClient, events, sync, Button
+from queue import Queue
+from faker import Faker  # For more advanced fingerprinting
+
 
 # Replace with your Telegram bot token
 BOT_TOKEN = "7903504769:AAEMX3AUeOgGXvHNMQ5x7T7XcewuK90quNQ"
-bot = telebot.TeleBot(BOT_TOKEN)
+# Use Telethon's Bot Token authentication (no API ID/HASH needed)
+bot = TelegramClient('bot', api_id=0, api_hash='').start(bot_token=BOT_TOKEN)  # Dummy api_id and api_hash
 
-user_agents = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.2; rv:122.0) Gecko/20100101 Firefox/122.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.2210.144",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Trident/7.0; rv:11.0) like Gecko",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (iPad; CPU OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/21.0 Chrome/120.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Brave/120.0.6099.259 Chrome/120.0.6099.259 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Vivaldi/6.2.3105.54 Chrome/120.0.6099.259 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Safari/537.36 Vivaldi/6.2.3105.54",
-    "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Opera/99.0.4779.89 Chrome/120.0.6099.259 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Linux; Android 13; SM-A546U) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/20.0 Chrome/120.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.2210.144 Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 14; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6099.280 Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 12; Redmi Note 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/20.0 Chrome/120.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.2210.144",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.5 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/18.0 Chrome/119.0.6099.259 Mobile Safari/537.36",
-    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.3) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36",
-    "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-]
+# --- Fingerprint Generation ---
+fake = Faker()
+
+def generate_fingerprint():
+    """Generates a realistic browser fingerprint."""
+    profile = fake.simple_profile()  # Get a basic user profile
+    user_agent = fake.user_agent()  # Get a random user agent
+
+    # More advanced fingerprinting attributes (can be expanded)
+    platform = random.choice(["Windows NT 10.0; Win64; x64", "Macintosh; Intel Mac OS X 10_15_7", "X11; Linux x86_64"])
+    accept_language = fake.locale().replace("_", "-")  # e.g., en-US, fr-FR
+    screen_width = random.choice([1920, 1366, 1280, 1600])
+    screen_height = random.choice([1080, 768, 800, 900])
+    color_depth = random.choice([24, 32])
+    # Example: Add more detailed platform information based on user-agent
+    if "Windows" in user_agent:
+          platform = random.choice(["Windows NT 10.0; Win64; x64; rv:122.0",
+                                   "Windows NT 10.0; Win64; x64",
+                                    "Windows NT 6.1; Win64; x64"])
+    elif "Macintosh" in user_agent:
+        platform = random.choice(["Macintosh; Intel Mac OS X 14.2; rv:122.0",
+                                 "Macintosh; Intel Mac OS X 10_15_7",
+                                  "Macintosh; Intel Mac OS X 14_2"])
+    elif "Linux" in user_agent:
+          platform = random.choice(["X11; Linux x86_64; rv:122.0",
+                                 "X11; Linux x86_64",
+                                   "X11; Ubuntu; Linux x86_64; rv:122.0"])
+
+    fingerprint = {
+        'user_agent': user_agent,
+        'accept_language': accept_language,
+        'platform': platform,
+        'screen_width': screen_width,
+        'screen_height': screen_height,
+        'color_depth': color_depth,
+        # Add other fingerprinting attributes as needed (e.g., WebGL, Canvas, etc.)
+        # ... see notes below for expansion ...
+    }
+    return fingerprint
+
 
 # Global stop flag for each chat
 stop_sharing_flags = {}
@@ -63,28 +69,31 @@ share_counts = {}  # {chat_id: count}
 reset_times = {}   # {chat_id: datetime}
 
 gome_token = []
+
 def get_token(input_file):
     gome_token = []
     for cookie in input_file:
         cookie = cookie.strip()
         if not cookie:
             continue
+        fingerprint = generate_fingerprint() # Generate a new fingerprint
+
         header_ = {
             'authority': 'business.facebook.com',
             'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-            'accept-language': 'vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5',
+            'accept-language': fingerprint['accept_language'], # Use the generated language
             'cache-control': 'max-age=0',
             'cookie': cookie,
             'referer': 'https://www.facebook.com/',
-            'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Linux"',
+            'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',  #This can also be randomized
+            'sec-ch-ua-mobile': '?0',  # Consistent with desktop user agents
+            'sec-ch-ua-platform': f'"{fingerprint["platform"].split(";")[0]}"',  # Extract platform
             'sec-fetch-dest': 'document',
             'sec-fetch-mode': 'navigate',
             'sec-fetch-site': 'same-origin',
             'sec-fetch-user': '?1',
             'upgrade-insecure-requests': '1',
-            'user-agent': random.choice(user_agents)
+            'user-agent': fingerprint['user_agent'], # Use generated User-Agent
         }
         try:
             home_business = requests.get('https://business.facebook.com/content_management', headers=header_, timeout=15).text
@@ -103,15 +112,22 @@ def get_token(input_file):
 def share(tach, id_share):
     cookie = tach.split('|')[0]
     token = tach.split('|')[1]
+    fingerprint = generate_fingerprint()  # Generate a new fingerprint for each share
+
     he = {
         'accept': '*/*',
         'accept-encoding': 'gzip, deflate',
+        'accept-language': fingerprint['accept_language'],
         'connection': 'keep-alive',
         'content-length': '0',
         'cookie': cookie,
         'host': 'graph.facebook.com',
-        'user-agent': random.choice(user_agents),
-        'referer': f'https://m.facebook.com/{id_share}'
+        'user-agent': fingerprint['user_agent'],
+        'referer': f'https://m.facebook.com/{id_share}',
+        # Could also include other headers derived from the fingerprint:
+        # 'sec-fetch-dest': 'empty',
+        # 'sec-fetch-mode': 'cors',
+        # 'sec-fetch-site': 'same-site',
     }
     try:
         res = requests.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_share}&published=0&access_token={token}', headers=he, timeout=10).json()
@@ -140,106 +156,124 @@ def share_thread_telegram(tach, id_share, chat_id):
 # Telegram Bot Handlers
 share_data = {}  # Store user-specific data
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message, "Chào mừng! Sử dụng /share để bắt đầu.")
+# --- Telethon Event Handlers ---
+message_queue = Queue()
 
-@bot.message_handler(commands=['share'])
-def share_command(message):
-    chat_id = message.chat.id
+@bot.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    await event.respond("Chào mừng! Sử dụng /share để bắt đầu.")
+
+@bot.on(events.NewMessage(pattern='/share'))
+async def share_command(event):
+    chat_id = event.chat_id
 
     # Check if daily limit is reached
     if chat_id in share_counts and share_counts[chat_id] >= DAILY_SHARE_LIMIT:
-        bot.reply_to(message, f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
+        await event.respond(f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
         return
 
     share_data[chat_id] = {}  # Initialize data for the user
     # Create a stop button
-    markup = types.InlineKeyboardMarkup()
-    stop_button = types.InlineKeyboardButton("Dừng Share", callback_data="stop_share")
-    markup.add(stop_button)
-    bot.send_message(chat_id, "Vui lòng gửi file chứa cookie (cookies.txt).", reply_markup=markup)
-    bot.register_next_step_handler(message, process_cookie_file)
+    await event.respond("Vui lòng gửi file chứa cookie (cookies.txt).", buttons=[Button.inline("Dừng Share", b"stop_share")])
+    message_queue.put((process_cookie_file, event)) # Add to queue
 
-@bot.callback_query_handler(func=lambda call: call.data == "stop_share")
-def stop_share_callback(call):
-    chat_id = call.message.chat.id
+@bot.on(events.CallbackQuery(data=b"stop_share"))
+async def stop_share_callback(event):
+    chat_id = event.chat_id
     stop_sharing_flags[chat_id] = True  # Set the stop flag
-    bot.send_message(chat_id, "Đã nhận lệnh dừng share. Vui lòng chờ quá trình hoàn tất.")
+    await event.respond("Đã nhận lệnh dừng share. Vui lòng chờ quá trình hoàn tất.")
+    await event.edit("Đã dừng chia sẻ.") # Acknowledge the button press
 
-@bot.message_handler(commands=['reset'])
-def reset_command(message):
-    chat_id = message.chat.id
+
+@bot.on(events.NewMessage(pattern='/reset'))
+async def reset_command(event):
+    chat_id = event.chat_id
     try:
-        bot.reset_data()
-        bot.reply_to(message, "Bot đã được khởi động lại.")
+        # Clear relevant data structures
+        share_counts[chat_id] = 0
+        reset_times[chat_id] = datetime.now().date()
+        if chat_id in share_data:
+            del share_data[chat_id]
+        stop_sharing_flags[chat_id] = False
+        await event.respond("Bot đã được khởi động lại.")
     except Exception as e:
-        bot.reply_to(message, f"Có lỗi xảy ra khi reset bot: {e}")
+        await event.respond(f"Có lỗi xảy ra khi reset bot: {e}")
 
 
-def process_cookie_file(message):
-    chat_id = message.chat.id
+
+async def process_cookie_file(event):
+    chat_id = event.chat_id
     try:
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        file_content = downloaded_file.decode('utf-8').splitlines()
+        if not event.message.media:
+            await event.reply("Vui lòng gửi file cookie (cookies.txt).")
+            message_queue.put((process_cookie_file, event))  # Put back in the queue
+            return
+
+        file_content = await bot.download_file(event.message.media)
+        file_content = file_content.decode('utf-8').splitlines()
+
         share_data[chat_id]['cookie_file'] = file_content
-        bot.send_message(chat_id, "Đã nhận file cookie. Vui lòng nhập ID bài viết cần share.")
-        bot.register_next_step_handler(message, process_id)
+        await event.respond("Đã nhận file cookie. Vui lòng nhập ID bài viết cần share.")
+        message_queue.put((process_id, event))
     except Exception as e:
-        bot.reply_to(message, f"Lỗi khi xử lý file: {e}")
-        del share_data[chat_id]  # Clear data
+        await event.reply(f"Lỗi khi xử lý file: {e}")
+        if chat_id in share_data:  # Check if exists before deleting
+            del share_data[chat_id]
 
-def process_id(message):
-    chat_id = message.chat.id
-    id_share = message.text.strip()
+
+async def process_id(event):
+    chat_id = event.chat_id
+    id_share = event.message.text.strip()
     if not id_share.isdigit():
-        bot.reply_to(message, "ID không hợp lệ. Vui lòng nhập lại ID bài viết cần share.")
-        bot.register_next_step_handler(message, process_id)
+        await event.reply("ID không hợp lệ. Vui lòng nhập lại ID bài viết cần share.")
+        message_queue.put((process_id, event)) # Put back in queue for retry.
         return
 
     share_data[chat_id]['id_share'] = id_share
-    bot.send_message(chat_id, "Vui lòng nhập delay giữa các lần share (giây).")
-    bot.register_next_step_handler(message, process_delay)
+    await event.respond("Vui lòng nhập delay giữa các lần share (giây).")
+    message_queue.put((process_delay, event))
 
 
-def process_delay(message):
-    chat_id = message.chat.id
-    delay_str = message.text.strip()
+async def process_delay(event):
+    chat_id = event.chat_id
+    delay_str = event.message.text.strip()
     try:
         delay = int(delay_str)
         if delay < 0:
-              raise ValueError
+            raise ValueError
     except ValueError:
-        bot.reply_to(message, "Delay không hợp lệ. Vui lòng nhập lại delay (giây) là một số dương.")
-        bot.register_next_step_handler(message, process_delay)
+        await event.reply("Delay không hợp lệ. Vui lòng nhập lại delay (giây) là một số dương.")
+        message_queue.put((process_delay, event))  # Re-add to queue
         return
 
     share_data[chat_id]['delay'] = delay
-    bot.send_message(chat_id, "Vui lòng nhập tổng số lượng share (0 để không giới hạn).")
-    bot.register_next_step_handler(message, process_total_shares)
+    await event.respond("Vui lòng nhập tổng số lượng share (0 để không giới hạn).")
+    message_queue.put((process_total_shares, event))
 
-def process_total_shares(message):
-    chat_id = message.chat.id
-    total_share_limit_str = message.text.strip()
+async def process_total_shares(event):
+    chat_id = event.chat_id
+    total_share_limit_str = event.message.text.strip()
     try:
         total_share_limit = int(total_share_limit_str)
         if total_share_limit < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Số lượng share không hợp lệ. Vui lòng nhập lại tổng số lượng share (0 để không giới hạn) là một số dương.")
-        bot.register_next_step_handler(message, process_total_shares)
+        await event.reply("Số lượng share không hợp lệ.  Vui lòng nhập lại tổng số lượng share (0 để không giới hạn) là một số dương.")
+        message_queue.put((process_total_shares, event))
         return
 
     share_data[chat_id]['total_share_limit'] = total_share_limit
-    # Before starting, create the initial message
-    markup = types.InlineKeyboardMarkup()
-    stop_button = types.InlineKeyboardButton("Dừng Share", callback_data="stop_share")
-    markup.add(stop_button)
-    bot.send_message(chat_id, "Bắt đầu share...", reply_markup=markup) # Display 'Stop' button here
-    start_sharing(chat_id)
+    await event.respond("Bắt đầu share...", buttons=[Button.inline("Dừng Share", b"stop_share")])
+    start_sharing(chat_id)  # No 'await' here, as it blocks the event loop
+
+
 
 def start_sharing(chat_id):
+    # Run the actual sharing in a separate thread
+    threading.Thread(target=share_task, args=(chat_id,)).start()
+
+
+def share_task(chat_id):
     data = share_data.get(chat_id)
     if not data:
         bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại bằng lệnh /share.")
@@ -259,6 +293,7 @@ def start_sharing(chat_id):
         return
 
     bot.send_message(chat_id, f"Tìm thấy {total_live} token hợp lệ.")
+
 
     # Initialize or retrieve share count and reset time for this chat
     if chat_id not in share_counts:
@@ -305,16 +340,28 @@ def start_sharing(chat_id):
         bot.send_message(chat_id, f"Đạt giới hạn share là {total_share_limit} shares.")
     bot.send_message(chat_id, f"Tổng cộng {successful_shares} share thành công.") # Final count
 
-    del share_data[chat_id]
+    if chat_id in share_data:  # Check before deleting
+        del share_data[chat_id]
     gome_token.clear()
     stop_sharing_flags[chat_id] = False  # Reset
 
-
+def process_message_queue():
+    while True:
+        if not message_queue.empty():
+            handler, event = message_queue.get()
+            bot.loop.run_until_complete(handler(event))
+        else:
+            time.sleep(0.1)  # Check the queue periodically
 
 if __name__ == "__main__":
     try:
         print("Bot is running...")
-        bot.infinity_polling()
+        # Start the message queue processor in a separate thread
+        queue_thread = threading.Thread(target=process_message_queue)
+        queue_thread.daemon = True  # Allow the program to exit even if the thread is running
+        queue_thread.start()
+
+        bot.run_until_disconnected()
     except KeyboardInterrupt:
         print("Bot stopped.")
         sys.exit()
