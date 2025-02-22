@@ -4,3 +4,4 @@ bs4
 aiohttp
 telethon
 faker
+psycopg2
