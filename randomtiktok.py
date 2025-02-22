@@ -12,10 +12,16 @@ from queue import Queue
 from faker import Faker  # For more advanced fingerprinting
 
 
+# --- REQUIRED: Telegram API ID and Hash ---
+API_ID = 22656641  # Replace with your API ID
+API_HASH = '8bb9b539dd910e0b033c6637b9788e90'  # Replace with your API Hash.  DO NOT SHARE THIS!
+
 # Replace with your Telegram bot token
 BOT_TOKEN = "7903504769:AAEMX3AUeOgGXvHNMQ5x7T7XcewuK90quNQ"
-# Use Telethon's Bot Token authentication (no API ID/HASH needed)
-bot = TelegramClient('bot', api_id=0, api_hash='').start(bot_token=BOT_TOKEN)  # Dummy api_id and api_hash
+
+# Use Telethon's Bot Token authentication
+bot = TelegramClient('bot', api_id=API_ID, api_hash=API_HASH).start(bot_token=BOT_TOKEN)
+
 
 # --- Fingerprint Generation ---
 fake = Faker()
@@ -53,7 +59,6 @@ def generate_fingerprint():
         'screen_height': screen_height,
         'color_depth': color_depth,
         # Add other fingerprinting attributes as needed (e.g., WebGL, Canvas, etc.)
-        # ... see notes below for expansion ...
     }
     return fingerprint
 
@@ -124,10 +129,6 @@ def share(tach, id_share):
         'host': 'graph.facebook.com',
         'user-agent': fingerprint['user_agent'],
         'referer': f'https://m.facebook.com/{id_share}',
-        # Could also include other headers derived from the fingerprint:
-        # 'sec-fetch-dest': 'empty',
-        # 'sec-fetch-mode': 'cors',
-        # 'sec-fetch-site': 'same-site',
     }
     try:
         res = requests.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_share}&published=0&access_token={token}', headers=he, timeout=10).json()
@@ -365,3 +366,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Bot stopped.")
         sys.exit()
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        sys.exit(1)
