@@ -257,7 +257,7 @@ def reset_command(message):
     """Xử lý lệnh /reset."""
     user_id = message.from_user.id
     reset_user_data(user_id)  # Sử dụng hàm hỗ trợ
-    bot.reply_to(message, "Bot đã được đặt lại cho bạn.")
+    bot.reply_to(message, "Bot đã được reset cho bạn.")
 
 
 
@@ -300,11 +300,11 @@ def process_delay(message):
         if delay < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số dương.")
+        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số.")
         return
 
     share_data[user_id]['delay'] = delay
-    bot.send_message(chat_id, "Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn).")
+    bot.send_message(chat_id, "Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn chỉ dành cho admin muốn biết thêm liên hệ admin).")
 
 
 def process_total_shares(message):
@@ -317,7 +317,7 @@ def process_total_shares(message):
         if total_share_limit < 0:
             raise ValueError
     except ValueError:
-        bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn) là một số dương.")
+        bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ là một số.")
         return
 
     share_data[user_id]['total_share_limit'] = total_share_limit
@@ -334,7 +334,7 @@ def start_sharing(user_id):
     chat_id = bot.get_chat(user_id).id # Cần chat id để gửi tin nhắn
     data = share_data.get(user_id)
     if not data:
-        bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với /share.")
+        bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với lệnh /share.")
         return
 
     input_file = data['cookie_file']
