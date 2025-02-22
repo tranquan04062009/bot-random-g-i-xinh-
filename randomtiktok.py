@@ -6,325 +6,316 @@ import time
 import json
 import random
 from time import strftime
+import telebot
+from telebot import types
 from datetime import datetime, timedelta
-from telethon import TelegramClient, events, sync, Button
-from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.types import DocumentAttributeFilename  # Import for filename checking
-from queue import Queue
-from faker import Faker
+import queue
+from faker import Faker  # Import Faker for fingerprinting
 
+# Thay thế bằng token bot Telegram của bạn
+BOT_TOKEN = "7903504769:AAEMX3AUeOgGXvHNMQ5x7T7XcewuK90quNQ"  # Thay thế bằng token thật của bạn
+bot = telebot.TeleBot(BOT_TOKEN)
 
-
-# --- REQUIRED: Telegram API ID and Hash ---
-API_ID = 22656641
-API_HASH = '8bb9b539dd910e0b033c6637b9788e90'
-
-# Replace with your Telegram bot token
-BOT_TOKEN = "7903504769:AAEMX3AUeOgGXvHNMQ5x7T7XcewuK90quNQ"
-
-# Use Telethon's Bot Token authentication
-bot = TelegramClient('bot', api_id=API_ID, api_hash=API_HASH).start(bot_token=BOT_TOKEN)
-
-
-# --- Fingerprint Generation ---
+# Khởi tạo Faker (cho nhiều ngôn ngữ)
 fake = Faker()
+fake_vi = Faker('vi_VN')  # Phiên bản tiếng Việt
 
-def generate_fingerprint():
-    """Generates a realistic browser fingerprint."""
-    profile = fake.simple_profile()  # Get a basic user profile
-    user_agent = fake.user_agent()  # Get a random user agent
+# Danh sách user agents (mở rộng, bao gồm các trình duyệt di động)
+user_agents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.2; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.2210.144",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Trident/7.0; rv:11.0) like Gecko",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPad; CPU OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/21.0 Chrome/120.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Brave/120.0.6099.259 Chrome/120.0.6099.259 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Vivaldi/6.2.3105.54 Chrome/120.0.6099.259 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Safari/537.36 Vivaldi/6.2.3105.54",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Opera/99.0.4779.89 Chrome/120.0.6099.259 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 13; SM-A546U) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/20.0 Chrome/120.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.2210.144 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6099.280 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 12; Redmi Note 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/20.0 Chrome/120.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.259 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.2210.144",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.5 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/18.0 Chrome/119.0.6099.259 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.3) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36",
+    "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+]
 
-    # More advanced fingerprinting attributes
-    platform = random.choice(["Windows NT 10.0; Win64; x64", "Macintosh; Intel Mac OS X 10_15_7", "X11; Linux x86_64"])
-    accept_language = fake.locale().replace("_", "-")  # e.g., en-US, fr-FR
-    screen_width = random.choice([1920, 1366, 1280, 1600])
-    screen_height = random.choice([1080, 768, 800, 900])
-    color_depth = random.choice([24, 32])
-    if "Windows" in user_agent:
-          platform = random.choice(["Windows NT 10.0; Win64; x64; rv:122.0",
-                                   "Windows NT 10.0; Win64; x64",
-                                    "Windows NT 6.1; Win64; x64"])
-    elif "Macintosh" in user_agent:
-        platform = random.choice(["Macintosh; Intel Mac OS X 14.2; rv:122.0",
-                                 "Macintosh; Intel Mac OS X 10_15_7",
-                                  "Macintosh; Intel Mac OS X 14_2"])
-    elif "Linux" in user_agent:
-          platform = random.choice(["X11; Linux x86_64; rv:122.0",
-                                 "X11; Linux x86_64",
-                                   "X11; Ubuntu; Linux x86_64; rv:122.0"])
 
-    fingerprint = {
-        'user_agent': user_agent,
-        'accept_language': accept_language,
-        'platform': platform,
-        'screen_width': screen_width,
-        'screen_height': screen_height,
-        'color_depth': color_depth,
-    }
-    return fingerprint
-
-
-# Global stop flag for each chat
+# Cờ dừng chia sẻ cho mỗi cuộc trò chuyện
 stop_sharing_flags = {}
 
-# Daily share limit
+# Giới hạn chia sẻ hàng ngày
 DAILY_SHARE_LIMIT = 5000
 
-# Track shares per chat ID
+# Theo dõi số lượt chia sẻ trên mỗi ID cuộc trò chuyện
 share_counts = {}  # {chat_id: count}
 reset_times = {}   # {chat_id: datetime}
 
 gome_token = []
 
+# --- Định nghĩa hàm ---
+
+def get_random_headers():
+    """Tạo header ngẫu nhiên, bao gồm fingerprint trình duyệt."""
+    headers = {
+        'authority': 'business.facebook.com',
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'accept-language': fake.locale(),  # Ngôn ngữ ngẫu nhiên
+        'cache-control': 'max-age=0',
+        'referer': 'https://www.facebook.com/',
+        'sec-ch-ua': f'"{fake.chrome(version_from=80, version_to=120)}";v="{random.randint(80, 120)}", "Not/A)Brand";v="99"',  # Biến thể
+        'sec-ch-ua-mobile': '?0' if random.random() > 0.5 else '?1',  # Giả lập mobile/desktop
+        'sec-ch-ua-platform': f'"{random.choice(["Windows", "Linux", "macOS"])}"', # Hệ điều hành
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'same-origin',
+        'sec-fetch-user': '?1',
+        'upgrade-insecure-requests': '1',
+        'user-agent': fake.user_agent(),  # User-agent ngẫu nhiên (quan trọng)
+    }
+    return headers
+
 def get_token(input_file):
-    gome_token = []
+    local_gome_token = []
     for cookie in input_file:
         cookie = cookie.strip()
         if not cookie:
             continue
-        fingerprint = generate_fingerprint()
 
-        header_ = {
-            'authority': 'business.facebook.com',
-            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-            'accept-language': fingerprint['accept_language'],
-            'cache-control': 'max-age=0',
-            'cookie': cookie,
-            'referer': 'https://www.facebook.com/',
-            'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': f'"{fingerprint["platform"].split(";")[0]}"',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode': 'navigate',
-            'sec-fetch-site': 'same-origin',
-            'sec-fetch-user': '?1',
-            'upgrade-insecure-requests': '1',
-            'user-agent': fingerprint['user_agent'],
-        }
+        headers = get_random_headers()  # Lấy header ngẫu nhiên cho mỗi cookie
+        headers['cookie'] = cookie  # Thêm cookie vào header
+
         try:
-            home_business = requests.get('https://business.facebook.com/content_management', headers=header_, timeout=15).text
+            home_business = requests.get('https://business.facebook.com/content_management', headers=headers, timeout=15).text
             if 'EAAG' in home_business:
                 token = home_business.split('EAAG')[1].split('","')[0]
                 cookie_token = f'{cookie}|EAAG{token}'
-                gome_token.append(cookie_token)
+                local_gome_token.append(cookie_token)
             else:
                 print(f"[!] Không thể lấy token từ cookie: {cookie[:50]}... Cookie có thể không hợp lệ.")
         except requests.exceptions.RequestException as e:
             print(f"[!] Lỗi khi lấy token cho cookie: {cookie[:50]}... {e}")
         except Exception as e:
              print(f"[!] Lỗi không mong muốn khi lấy token cho cookie: {cookie[:50]}... {e}")
-    return gome_token
+    return local_gome_token
+
 
 def share(tach, id_share):
     cookie = tach.split('|')[0]
     token = tach.split('|')[1]
-    fingerprint = generate_fingerprint()
 
-    he = {
+    headers = get_random_headers() # Fingerprint cho mỗi request
+    headers.update({ # Thêm các header cần thiết
         'accept': '*/*',
         'accept-encoding': 'gzip, deflate',
-        'accept-language': fingerprint['accept_language'],
         'connection': 'keep-alive',
         'content-length': '0',
         'cookie': cookie,
         'host': 'graph.facebook.com',
-        'user-agent': fingerprint['user_agent'],
-        'referer': f'https://m.facebook.com/{id_share}',
-    }
+        'referer': f'https://m.facebook.com/{id_share}'
+    })
+
     try:
-        res = requests.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_share}&published=0&access_token={token}', headers=he, timeout=10).json()
+        res = requests.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_share}&published=0&access_token={token}', headers=headers, timeout=10).json()
         if 'id' in res:
             return True
         else:
-            print(f"[!] Share thất bại: ID: {id_share} - Phản hồi: {res}")
+            print(f"[!] Chia sẻ thất bại: ID: {id_share} - Phản hồi: {res}")
             return False
     except requests.exceptions.RequestException as e:
-        print(f"[!] Lỗi request share: ID: {id_share} - {e}")
+        print(f"[!] Lỗi request chia sẻ: ID: {id_share} - {e}")
         return False
     except Exception as e:
-        print(f"[!] Lỗi không mong muốn khi share: ID: {id_share} - {e}")
+        print(f"[!] Lỗi không mong muốn khi chia sẻ: ID: {id_share} - {e}")
         return False
 
 
 def share_thread_telegram(tach, id_share, chat_id):
     if stop_sharing_flags.get(chat_id, False):
-        return False
-    if share(tach, id_share):
-        return True
-    else:
-        return False
+        return False  # Dừng chia sẻ
+    return share(tach, id_share)
 
 
-# --- Telethon Event Handlers ---
-message_queue = Queue()
 
-@bot.on(events.NewMessage(pattern='/start'))
-async def start(event):
-    await event.respond("Chào mừng! Sử dụng /share để bắt đầu.")
+# --- Telegram Bot Handlers ---
+share_data = {}  # Lưu trữ dữ liệu người dùng cụ thể
 
-@bot.on(events.NewMessage(pattern='/share'))
-async def share_command(event):
-    chat_id = event.chat_id
-    user_id = event.sender_id
+# Tạo hàng đợi tin nhắn
+message_queue = queue.Queue()
 
-    if event.is_group or event.is_channel:
-        user = await bot.get_entity(user_id)
-        first_name = user.first_name if user.first_name else "User"
-        await event.respond(
-            f"@{first_name}, vui lòng chat riêng với bot để sử dụng tính năng /share.",
-            buttons=[Button.url("Chat Riêng", f"https://t.me/{bot.me.username}")]
-        )
-        return
+def handle_message(message):
+    """Xử lý một tin nhắn từ hàng đợi."""
+    if message.content_type == 'text':
+        if message.text.startswith('/'):
+            command_handler(message)  # Xử lý lệnh trực tiếp
+        else:
+            # Định tuyến tin nhắn đến trình xử lý tương ứng dựa trên ngữ cảnh
+            chat_id = message.chat.id
+            if chat_id in share_data:
+                if 'cookie_file' not in share_data[chat_id]:
+                    bot.reply_to(message, "Vui lòng gửi file cookie trước.")
+                    return
+                elif 'id_share' not in share_data[chat_id]:
+                    process_id(message)
+                elif 'delay' not in share_data[chat_id]:
+                    process_delay(message)
+                elif 'total_share_limit' not in share_data[chat_id]:
+                    process_total_shares(message)
 
+            else: # nếu không có lệnh /share nào được bắt đầu
+                bot.reply_to(message, "Vui lòng sử dụng lệnh /share để bắt đầu.")
+
+    elif message.content_type == 'document':
+        chat_id = message.chat.id
+        if chat_id in share_data and 'cookie_file' not in share_data[chat_id]:
+             process_cookie_file(message)
+        else:
+            bot.reply_to(message, "Vui lòng sử dụng lệnh /share để bắt đầu.")
+
+
+def command_handler(message):
+    """Xử lý các lệnh."""
+    if message.text.startswith('/start'):
+        start(message)
+    elif message.text.startswith('/share'):
+        share_command(message)
+    elif message.text.startswith('/reset'):
+        reset_command(message)
+    # Thêm các trình xử lý lệnh khác nếu cần
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "Chào mừng! Sử dụng /share để bắt đầu.")
+
+@bot.message_handler(commands=['share'])
+def share_command(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    # Kiểm tra xem tin nhắn có phải từ nhóm hoặc kênh không
+    if message.chat.type in ['group', 'supergroup', 'channel']:
+        bot.reply_to(message, "Lệnh /share chỉ hoạt động trong chat riêng. Vui lòng nhắn tin riêng cho bot để tiếp tục.")
+        return  # Dừng xử lý tiếp cho các yêu cầu từ nhóm/kênh
+
+    # Kiểm tra giới hạn chia sẻ hàng ngày (chỉ khi đó là cuộc trò chuyện riêng tư)
     if chat_id in share_counts and share_counts[chat_id] >= DAILY_SHARE_LIMIT:
-        await event.respond(f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
+        bot.reply_to(message, f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} lượt chia sẻ hàng ngày. Vui lòng thử lại sau.")
         return
 
-    share_data[chat_id] = {'waiting_for_file': True}  # Initialize AND set waiting_for_file
-    await event.respond("Vui lòng gửi file chứa cookie (cookies.txt).", buttons=[Button.inline("Dừng Share", b"stop_share")])
-    # NO message_queue.put here! We wait for the file in handle_all_messages
+    share_data[chat_id] = {}  # Khởi tạo dữ liệu cho người dùng
+    # Tạo nút dừng
+    markup = types.InlineKeyboardMarkup()
+    stop_button = types.InlineKeyboardButton("Dừng Chia sẻ", callback_data="stop_share")
+    markup.add(stop_button)
+    bot.send_message(chat_id, "Vui lòng gửi file chứa cookie (cookies.txt).", reply_markup=markup)
+    # Không đăng ký trình xử lý bước tiếp theo ở đây. Hàng đợi sẽ xử lý nó.
 
 
+@bot.callback_query_handler(func=lambda call: call.data == "stop_share")
+def stop_share_callback(call):
+    chat_id = call.message.chat.id
+    stop_sharing_flags[chat_id] = True  # Đặt cờ dừng
+    bot.send_message(chat_id, "Đã nhận lệnh dừng chia sẻ. Vui lòng chờ quá trình hoàn tất.")
 
-@bot.on(events.CallbackQuery(data=b"stop_share"))
-async def stop_share_callback(event):
-    chat_id = event.chat_id
-    stop_sharing_flags[chat_id] = True
-    await event.respond("Đã nhận lệnh dừng share. Vui lòng chờ quá trình hoàn tất.")
-    await event.edit("Đã dừng chia sẻ.")
-
-
-@bot.on(events.NewMessage(pattern='/reset'))
-async def reset_command(event):
-    chat_id = event.chat_id
-    if event.is_group or event.is_channel:
-        user = await bot.get_entity(event.sender_id)
-        first_name = user.first_name if user.first_name else "User"
-        await event.respond(
-            f"@{first_name}, vui lòng chat riêng với bot để sử dụng tính năng /reset.",
-            buttons=[Button.url("Chat Riêng", f"https://t.me/{bot.me.username}")]
-        )
-        return
+@bot.message_handler(commands=['reset'])
+def reset_command(message):
+    chat_id = message.chat.id
     try:
-        share_counts[chat_id] = 0
-        reset_times[chat_id] = datetime.now().date()
+        # Đặt lại mạnh mẽ hơn: Xóa tất cả các cấu trúc dữ liệu liên quan
         if chat_id in share_data:
             del share_data[chat_id]
-        stop_sharing_flags[chat_id] = False
-        await event.respond("Bot đã được khởi động lại.")
+        if chat_id in stop_sharing_flags:
+            stop_sharing_flags[chat_id] = False
+        if chat_id in share_counts:
+            share_counts[chat_id] = 0
+        if chat_id in reset_times:
+            reset_times[chat_id] = datetime.now().date()
+        gome_token.clear()  # Xóa danh sách token toàn cục
+        bot.reply_to(message, "Bot đã được khởi động lại.")
     except Exception as e:
-        await event.respond(f"Có lỗi xảy ra khi reset bot: {e}")
+        bot.reply_to(message, f"Có lỗi xảy ra khi đặt lại bot: {e}")
 
 
-# --- File Handling - Improved ---
-@bot.on(events.NewMessage)
-async def handle_all_messages(event):
-    chat_id = event.chat_id
-    # Only proceed if this chat is in the process of a /share session
-    if chat_id in share_data and share_data[chat_id].get('waiting_for_file'): # Safely check for the key
-        if event.message.media:
-            # Check if it's a document (file)
-            if hasattr(event.message.media, 'document'):
-                # Check for filename attribute (more reliable)
-                is_valid_file = False
-                for attribute in event.message.media.document.attributes:
-                    if isinstance(attribute, DocumentAttributeFilename):
-                        # Basic filename check
-                        if attribute.file_name.endswith('.txt'):
-                           is_valid_file = True
-                           break
-
-                if is_valid_file:
-                    message_queue.put((process_cookie_file, event)) # Put in queue
-                    # We DO NOT remove waiting_for_file here; it's done in process_cookie_file
-                else:
-                     await event.reply("Vui lòng gửi file cookie có định dạng .txt.")
-            else:
-                await event.reply("Vui lòng gửi file cookie (cookies.txt).") #Not a document
-        else:
-            await event.reply("Vui lòng gửi file cookie (cookies.txt).") # Not media
-
-async def process_cookie_file(event):
-    chat_id = event.chat_id
+def process_cookie_file(message):
+    chat_id = message.chat.id
     try:
-        # Download the file
-        file_content = await bot.download_file(event.message.media)
-        if not file_content:
-            await event.reply("File không hợp lệ hoặc không có nội dung. Vui lòng gửi lại file cookie (cookies.txt).")
-            # DO NOT return; re-set waiting_for_file and re-prompt
-            share_data[chat_id]['waiting_for_file'] = True
-            await event.respond("Vui lòng gửi lại file chứa cookie (cookies.txt).")
-            return # Ensure the function exits here
-
-        file_content = file_content.decode('utf-8').splitlines()
-
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        file_content = downloaded_file.decode('utf-8').splitlines()
         share_data[chat_id]['cookie_file'] = file_content
-        # NOW we remove waiting_for_file.
-        del share_data[chat_id]['waiting_for_file']
-        await event.respond("Đã nhận file cookie. Vui lòng nhập ID bài viết cần share.")
-        message_queue.put((process_id, event))
-
+        bot.send_message(chat_id, "Đã nhận file cookie. Vui lòng nhập ID bài viết cần chia sẻ.")
+        # Không đăng ký bước tiếp theo. Hàng đợi sẽ xử lý.
     except Exception as e:
-        await event.reply(f"Lỗi khi xử lý file: {e}")
-        if chat_id in share_data:
-             # Reset waiting_for_file on error, too, so the user can try again
-            if 'waiting_for_file' in share_data[chat_id]: # Check before deleting
-                del share_data[chat_id]['waiting_for_file']
+        bot.reply_to(message, f"Lỗi khi xử lý file: {e}")
+        if chat_id in share_data:  # Kiểm tra xem có tồn tại trước khi xóa
+            del share_data[chat_id]  # Xóa dữ liệu
 
-
-
-async def process_id(event):
-    chat_id = event.chat_id
-    id_share = event.message.text.strip()
+def process_id(message):
+    chat_id = message.chat.id
+    id_share = message.text.strip()
     if not id_share.isdigit():
-        await event.reply("ID không hợp lệ. Vui lòng nhập lại ID bài viết cần share.")
-        message_queue.put((process_id, event))
-        return
+        bot.reply_to(message, "ID không hợp lệ. Vui lòng nhập lại ID bài viết cần chia sẻ.")
+        return # Không tiếp tục nếu ID không hợp lệ
 
     share_data[chat_id]['id_share'] = id_share
-    await event.respond("Vui lòng nhập delay giữa các lần share (giây).")
-    message_queue.put((process_delay, event))
+    bot.send_message(chat_id, "Vui lòng nhập độ trễ giữa các lần chia sẻ (giây).")
+    # Không đăng ký bước tiếp theo. Hàng đợi sẽ xử lý.
 
 
-async def process_delay(event):
-    chat_id = event.chat_id
-    delay_str = event.message.text.strip()
+def process_delay(message):
+    chat_id = message.chat.id
+    delay_str = message.text.strip()
     try:
         delay = int(delay_str)
         if delay < 0:
-            raise ValueError
+              raise ValueError
     except ValueError:
-        await event.reply("Delay không hợp lệ. Vui lòng nhập lại delay (giây) là một số dương.")
-        message_queue.put((process_delay, event))
-        return
+        bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập lại độ trễ (giây) là một số dương.")
+        return  # Không tiếp tục nếu độ trễ không hợp lệ
 
     share_data[chat_id]['delay'] = delay
-    await event.respond("Vui lòng nhập tổng số lượng share (0 để không giới hạn).")
-    message_queue.put((process_total_shares, event))
+    bot.send_message(chat_id, "Vui lòng nhập tổng số lượng chia sẻ (0 để không giới hạn).")
+    # Không đăng ký bước tiếp theo. Hàng đợi sẽ xử lý.
 
-async def process_total_shares(event):
-    chat_id = event.chat_id
-    total_share_limit_str = event.message.text.strip()
+def process_total_shares(message):
+    chat_id = message.chat.id
+    total_share_limit_str = message.text.strip()
     try:
         total_share_limit = int(total_share_limit_str)
-        if delay < 0:
+        if total_share_limit < 0:
             raise ValueError
     except ValueError:
-        await event.reply("Số lượng share không hợp lệ.  Vui lòng nhập lại tổng số lượng share (0 để không giới hạn) là một số dương.")
-        message_queue.put((process_total_shares, event))
-        return
+        bot.reply_to(message, "Số lượng chia sẻ không hợp lệ. Vui lòng nhập lại tổng số lượng chia sẻ (0 để không giới hạn) là một số dương.")
+        return # Không tiếp tục nếu đầu vào không hợp lệ
 
     share_data[chat_id]['total_share_limit'] = total_share_limit
-    await event.respond("Bắt đầu share...", buttons=[Button.inline("Dừng Share", b"stop_share")])
+    # Trước khi bắt đầu, tạo tin nhắn ban đầu
+    markup = types.InlineKeyboardMarkup()
+    stop_button = types.InlineKeyboardButton("Dừng Chia sẻ", callback_data="stop_share")
+    markup.add(stop_button)
+    bot.send_message(chat_id, "Bắt đầu chia sẻ...", reply_markup=markup) # Hiển thị nút 'Dừng' ở đây
     start_sharing(chat_id)
 
-
-
 def start_sharing(chat_id):
-    threading.Thread(target=share_task, args=(chat_id,)).start()
-
-
-def share_task(chat_id):
     data = share_data.get(chat_id)
     if not data:
         bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại bằng lệnh /share.")
@@ -340,32 +331,36 @@ def share_task(chat_id):
 
     if total_live == 0:
         bot.send_message(chat_id, "Không tìm thấy token hợp lệ nào.")
-        del share_data[chat_id]
+        if chat_id in share_data: # Kiểm tra sự tồn tại trước khi xóa
+            del share_data[chat_id]
         return
 
     bot.send_message(chat_id, f"Tìm thấy {total_live} token hợp lệ.")
 
+    # Khởi tạo hoặc truy xuất số lượt chia sẻ và thời gian đặt lại cho cuộc trò chuyện này
     if chat_id not in share_counts:
         share_counts[chat_id] = 0
-        reset_times[chat_id] = datetime.now().date()
+        reset_times[chat_id] = datetime.now().date()  # Ngày hôm nay
     else:
+        # Kiểm tra xem có phải là một ngày mới không, đặt lại số lượt chia sẻ nếu cần
         if reset_times[chat_id] < datetime.now().date():
             share_counts[chat_id] = 0
             reset_times[chat_id] = datetime.now().date()
 
     stt = 0
     shared_count = 0
-    successful_shares = 0
+    successful_shares = 0 # Theo dõi số lượt chia sẻ thành công
     continue_sharing = True
-    stop_sharing_flags[chat_id] = False
+    stop_sharing_flags[chat_id] = False  # Đặt lại cờ dừng khi bắt đầu
     while continue_sharing:
         for tach in all_tokens:
             if stop_sharing_flags.get(chat_id, False):
                 continue_sharing = False
-                break
+                break  # Thoát vòng lặp bên trong
 
+            # Kiểm tra giới hạn hàng ngày *trước khi* cố gắng chia sẻ
             if share_counts[chat_id] >= DAILY_SHARE_LIMIT:
-                bot.send_message(chat_id, f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} share hàng ngày. Vui lòng thử lại sau.")
+                bot.send_message(chat_id, f"Đã đạt giới hạn {DAILY_SHARE_LIMIT} lượt chia sẻ hàng ngày. Vui lòng thử lại sau.")
                 continue_sharing = False
                 break
 
@@ -373,7 +368,7 @@ def share_task(chat_id):
             success = share_thread_telegram(tach, id_share, chat_id)
             if success:
                 successful_shares += 1
-                share_counts[chat_id] += 1
+                share_counts[chat_id] += 1  # Tăng số lượng
             time.sleep(delay)
             shared_count += 1
 
@@ -382,35 +377,43 @@ def share_task(chat_id):
                 break
 
 
-    bot.send_message(chat_id, "Quá trình share hoàn tất.")
+    bot.send_message(chat_id, "Quá trình chia sẻ hoàn tất.")
     if total_share_limit > 0 and shared_count >= total_share_limit:
-        bot.send_message(chat_id, f"Đạt giới hạn share là {total_share_limit} shares.")
-    bot.send_message(chat_id, f"Tổng cộng {successful_shares} share thành công.")
+        bot.send_message(chat_id, f"Đạt giới hạn chia sẻ là {total_share_limit} lượt chia sẻ.")
+    bot.send_message(chat_id, f"Tổng cộng {successful_shares} lượt chia sẻ thành công.") # Số lượng cuối cùng
 
-    if chat_id in share_data:
+    if chat_id in share_data: # Kiểm tra sự tồn tại trước khi xóa
         del share_data[chat_id]
     gome_token.clear()
-    stop_sharing_flags[chat_id] = False
+    stop_sharing_flags[chat_id] = False  # Đặt lại
 
-def process_message_queue():
+# --- Vòng lặp chính và xử lý hàng đợi ---
+def process_queue():
+    """Xử lý tin nhắn từ hàng đợi trong một luồng riêng biệt."""
     while True:
-        if not message_queue.empty():
-            handler, event = message_queue.get()
-            bot.loop.run_until_complete(handler(event))
-        else:
-            time.sleep(0.1)
+        message = message_queue.get()  # Lấy tin nhắn từ hàng đợi
+        try:
+            handle_message(message)  # Xử lý tin nhắn
+        except Exception as e:
+            bot.reply_to(message, f"Đã xảy ra lỗi: {e}")
+        finally:
+            message_queue.task_done() # Báo hiệu hoàn thành
+
+# Bắt đầu luồng xử lý hàng đợi
+queue_thread = threading.Thread(target=process_queue, daemon=True)
+queue_thread.start()
+
+@bot.message_handler(func=lambda message: True, content_types=['text', 'document'])
+def enqueue_message(message):
+    """Thêm tin nhắn đến vào hàng đợi."""
+    message_queue.put(message)
+
+
 
 if __name__ == "__main__":
     try:
-        print("Bot is running...")
-        queue_thread = threading.Thread(target=process_message_queue)
-        queue_thread.daemon = True
-        queue_thread.start()
-
-        bot.run_until_disconnected()
+        print("Bot đang chạy...")
+        bot.infinity_polling()
     except KeyboardInterrupt:
-        print("Bot stopped.")
+        print("Bot đã dừng.")
         sys.exit()
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        sys.exit(1)
