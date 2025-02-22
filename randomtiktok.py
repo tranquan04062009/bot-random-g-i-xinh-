@@ -11,16 +11,27 @@ from telebot import types
 from datetime import datetime, timedelta, timezone
 import queue
 from faker import Faker
+import psycopg2  # Import the PostgreSQL library
 
-# Thay thế bằng token bot Telegram của bạn
-BOT_TOKEN = "7903504769:AAFeKxomzBB-QtDzwOXojBofz9vju2CsDKc"  # Thay thế bằng token thật của bạn
+# --- Configuration ---
+BOT_TOKEN = "7903504769:AAFeKxomzBB-QtDzwOXojBofz9vju2CsDKc"  # Replace with your actual bot token
+DATABASE_URL = os.environ.get('DATABASE_URL')  # Get database URL from environment variable (Railway)
+
+# --- Initialize Libraries ---
 bot = telebot.TeleBot(BOT_TOKEN)
-
-# Khởi tạo Faker
 fake = Faker()
-fake_vi = Faker('vi_VN')  # Phiên bản tiếng Việt
+fake_vi = Faker('vi_VN')
 
-# Danh sách user agents (mở rộng)
+# --- Constants ---
+DAILY_SHARE_LIMIT = 5000
+VN_TIMEZONE = timezone(timedelta(hours=7))
+
+# --- Data Structures (Simplified) ---
+share_data = {}  # Temporary data during /share command
+stop_sharing_flags = {}  # Flag to stop sharing threads
+VIP_USER_IDS = {123456789, 987654321}  # Add VIP user IDs here
+
+# --- User Agents (Keep your existing list) ---
 user_agents = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
@@ -59,23 +70,78 @@ user_agents = [
     "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
 ]
 
-# --- Hằng số ---
-DAILY_SHARE_LIMIT = 5000
-VN_TIMEZONE = timezone(timedelta(hours=7))  # Múi giờ Việt Nam (GMT+7)
+# --- Database Connection ---
+def get_db_connection():
+    """Establishes a connection to the PostgreSQL database."""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except psycopg2.Error as e:
+        print(f"Error connecting to the database: {e}")
+        return None
 
-# --- Cấu trúc dữ liệu ---
-# Dữ liệu cho mỗi người dùng
-share_counts = {}  # {user_id: count}
-reset_times = {}  # {user_id: datetime}
-stop_sharing_flags = {}  # {user_id: True/False}
-share_data = {} # {user_id: {cookie_file: [], id_share: str, delay: int, total_share_limit: int}}
-# message_queue = queue.Queue() # Removed
+# --- Database Initialization ---
+def initialize_database():
+    """Creates the necessary tables if they don't exist."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_shares (
+                    user_id BIGINT PRIMARY KEY,
+                    share_count INTEGER DEFAULT 0,
+                    last_reset DATE
+                );
+            """)
+            conn.commit()
+        conn.close()
 
-# ---  VIP USER IDs ---
-VIP_USER_IDS = {123456789, 987654321}  # Thêm các user ID VIP vào đây
+# --- Database Functions ---
 
+def get_user_share_data(user_id):
+    """Retrieves share count and last reset date from the database."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT share_count, last_reset FROM user_shares WHERE user_id = %s", (user_id,))
+            result = cur.fetchone()
+            conn.close()
+            return result  # Returns (share_count, last_reset) or None
+    return None
 
-# --- Hàm hỗ trợ ---
+def update_user_share_count(user_id, increment=1):
+    """Updates the share count for a user in the database."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            # Use INSERT ... ON CONFLICT to handle new users efficiently
+            cur.execute("""
+                INSERT INTO user_shares (user_id, share_count, last_reset)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id)
+                DO UPDATE SET share_count = user_shares.share_count + EXCLUDED.share_count,
+                              last_reset = EXCLUDED.last_reset;
+            """, (user_id, increment, datetime.now(VN_TIMEZONE).date())) #Always update last_reset
+            conn.commit()
+        conn.close()
+
+def reset_user_data_db(user_id):
+    """Resets the share count for a user in the database."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE user_shares SET share_count = 0, last_reset = %s WHERE user_id = %s
+            """, (datetime.now(VN_TIMEZONE).date(), user_id))
+            conn.commit()
+        conn.close()
+    #Also reset local data
+    if user_id in share_data:
+        del share_data[user_id]
+    if user_id in stop_sharing_flags:
+        stop_sharing_flags[user_id] = False
+
+# --- Helper Functions (Keep your existing ones and add this) ---
 
 def get_random_headers():
     """Tạo header ngẫu nhiên, bao gồm fingerprint trình duyệt."""
@@ -168,18 +234,8 @@ def share_thread_telegram(tach, id_share, user_id):
         return False
     return share(tach, id_share)
 
+# --- Bot Handlers (Modified) ---
 
-def reset_user_data(user_id):
-    """Đặt lại dữ liệu chia sẻ cho một người dùng cụ thể."""
-    if user_id in share_data:
-        del share_data[user_id]
-    if user_id in stop_sharing_flags:
-        stop_sharing_flags[user_id] = False
-    if user_id in share_counts:
-        share_counts[user_id] = 0
-    reset_times[user_id] = datetime.now(VN_TIMEZONE).date()
-
-# --- Bộ xử lý Bot Telegram ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'document'])
 def handle_message(message):
     """Xử lý một tin nhắn, định tuyến dựa trên loại nội dung và trạng thái."""
@@ -229,24 +285,26 @@ def start(message):
 
 @bot.message_handler(commands=['share'])
 def share_command(message):
-    """Xử lý lệnh /share."""
+    """Handles the /share command."""
     user_id = message.from_user.id
 
-    # Bắt buộc trò chuyện riêng tư cho /share
     if message.chat.type != 'private':
-        bot.reply_to(message, "Lệnh /share chỉ hoạt động trong các cuộc trò chuyện riêng tư. Vui lòng nhắn tin trực tiếp cho bot.")
+        bot.reply_to(message, "Lệnh /share chỉ hoạt động trong cuộc trò chuyện riêng tư.")
         return
 
-    # Kiểm tra giới hạn hàng ngày và VIP
-    if user_id not in VIP_USER_IDS and user_id in share_counts and share_counts[user_id] >= DAILY_SHARE_LIMIT:
-        bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
-        return
+    # Check daily limit and VIP status *from the database*
+    if user_id not in VIP_USER_IDS:
+        user_data = get_user_share_data(user_id)
+        if user_data:
+            share_count, last_reset = user_data
+            if last_reset == datetime.now(VN_TIMEZONE).date() and share_count >= DAILY_SHARE_LIMIT:
+                bot.reply_to(message, f"Bạn đã đạt giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai.")
+                return
+        #else:  #No need for else: If user_data is none, it means user is new.
 
-    # Thông báo cho người dùng VIP
     if user_id in VIP_USER_IDS:
-        bot.send_message(message.chat.id, "Bạn là người dùng VIP, không có giới hạn chia sẻ hàng ngày.")
+        bot.send_message(message.chat.id, "Bạn là người dùng VIP, không giới hạn chia sẻ.")
 
-    # Khởi tạo dữ liệu chia sẻ
     share_data[user_id] = {}
     markup = types.InlineKeyboardMarkup()
     stop_button = types.InlineKeyboardButton("Dừng Chia Sẻ", callback_data="stop_share")
@@ -266,7 +324,7 @@ def stop_share_callback(call):
 def reset_command(message):
     """Xử lý lệnh /reset."""
     user_id = message.from_user.id
-    reset_user_data(user_id)  # Sử dụng hàm hỗ trợ
+    reset_user_data_db(user_id)
     bot.reply_to(message, "Bot đã được đặt lại cho bạn.")
 
 
@@ -284,7 +342,7 @@ def process_cookie_file(message):
         bot.send_message(chat_id, "Đã nhận file cookie. Vui lòng nhập ID bài viết cần chia sẻ.")
     except Exception as e:
         bot.reply_to(message, f"Lỗi khi xử lý file: {e}")
-        reset_user_data(user_id)  # Đặt lại nếu có lỗi
+        reset_user_data_db(user_id)  # Đặt lại nếu có lỗi
 
 
 def process_id(message):
@@ -340,8 +398,8 @@ def process_total_shares(message):
 
 
 def start_sharing(user_id):
-    """Bắt đầu quá trình chia sẻ."""
-    chat_id = bot.get_chat(user_id).id # Cần chat id để gửi tin nhắn
+    """Starts the sharing process."""
+    chat_id = bot.get_chat(user_id).id
     data = share_data.get(user_id)
     if not data:
         bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với /share.")
@@ -357,15 +415,12 @@ def start_sharing(user_id):
 
     if total_live == 0:
         bot.send_message(chat_id, "Không tìm thấy token hợp lệ nào.")
-        reset_user_data(user_id)
+        reset_user_data_db(user_id)  # Reset database data
         return
 
     bot.send_message(chat_id, f"Tìm thấy {total_live} token hợp lệ.")
 
-    # Khởi tạo hoặc đặt lại số lượt đếm hàng ngày, trừ VIP
-    if user_id not in VIP_USER_IDS and (user_id not in share_counts or reset_times.get(user_id) != datetime.now(VN_TIMEZONE).date()):
-          reset_user_data(user_id)
-
+    # No need to initialize share_counts or reset_times here, DB handles it
 
     stt = 0
     shared_count = 0
@@ -379,19 +434,24 @@ def start_sharing(user_id):
                 continue_sharing = False
                 break
 
-            # Kiểm tra giới hạn hàng ngày, trừ VIP
-            if user_id not in VIP_USER_IDS and share_counts.get(user_id, 0) >= DAILY_SHARE_LIMIT:
-                bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
-                continue_sharing = False
-                break
+            # Check daily limit *from the database*, except for VIPs
+            if user_id not in VIP_USER_IDS:
+                user_data = get_user_share_data(user_id)
+                if user_data:
+                    share_count, last_reset = user_data
+                    if last_reset == datetime.now(VN_TIMEZONE).date() and share_count >= DAILY_SHARE_LIMIT:
+                        bot.send_message(chat_id, f"Bạn đã đạt giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai.")
+                        continue_sharing = False
+                        break
 
             stt += 1
-            success = share_thread_telegram(tach, id_share, user_id)  # Truyền user_id
+            success = share_thread_telegram(tach, id_share, user_id)
             if success:
                 successful_shares += 1
-                # Tăng số lượt đếm, trừ VIP
+                # Update share count in the database, except for VIPs
                 if user_id not in VIP_USER_IDS:
-                    share_counts[user_id] = share_counts.get(user_id, 0) + 1
+                    update_user_share_count(user_id)
+
             time.sleep(delay)
             shared_count += 1
 
@@ -401,20 +461,17 @@ def start_sharing(user_id):
 
     bot.send_message(chat_id, "Quá trình chia sẻ hoàn tất.")
     if total_share_limit > 0 and shared_count >= total_share_limit:
-        bot.send_message(chat_id, f"Đã đạt đến giới hạn chia sẻ là {total_share_limit} lượt.")
+        bot.send_message(chat_id, f"Đã đạt giới hạn chia sẻ là {total_share_limit} lượt.")
     bot.send_message(chat_id, f"Tổng số lượt chia sẻ thành công: {successful_shares}.")
-    reset_user_data(user_id)
+    reset_user_data_db(user_id)  # Reset database data
 
-
-# ---  Vòng lặp chính ---
-# Removed queue processing functions
-
+# --- Main Loop ---
 if __name__ == "__main__":
+    initialize_database()  # Initialize the database
     print("Bot đang chạy...")
     while True:
         try:
-            # Sử dụng bot.polling() với timeout
-            bot.polling(timeout=10)  # Kiểm tra cập nhật mỗi 10 giây
+            bot.polling(timeout=10, none_stop=True)
         except Exception as e:
             print(f"Lỗi trong quá trình polling: {e}")
-            time.sleep(5)  # Đợi 5 giây trước khi thử lại
+            time.sleep(5)
