@@ -2,3 +2,4 @@ pyTelegramBotAPI
 requests
 bs4
 aiohttp
+telethon
