@@ -60,7 +60,7 @@ user_agents = [
 ]
 
 # --- Hằng số ---
-DAILY_SHARE_LIMIT = 200
+DAILY_SHARE_LIMIT = 5000
 VN_TIMEZONE = timezone(timedelta(hours=7))  # Múi giờ Việt Nam (GMT+7)
 
 # --- Cấu trúc dữ liệu ---
@@ -69,6 +69,7 @@ share_counts = {}  # {user_id: count}
 reset_times = {}  # {user_id: datetime}
 stop_sharing_flags = {}  # {user_id: True/False}
 share_data = {} # {user_id: {cookie_file: [], id_share: str, delay: int, total_share_limit: int}}
+# message_queue = queue.Queue() # Removed
 
 # ---  VIP USER IDs ---
 VIP_USER_IDS = {123456789, 987654321}  # Thêm các user ID VIP vào đây
@@ -109,19 +110,15 @@ def get_token(input_file):
 
         try:
             response = requests.get('https://business.facebook.com/content_management', headers=headers, timeout=15)
-            response.raise_for_status()
+            response.raise_for_status()  # Phát sinh lỗi HTTPError nếu có lỗi (4xx hoặc 5xx)
+            home_business = response.text
 
-            if response.ok: # Check for successful status code
-                home_business = response.text
-                if 'EAAG' in home_business:
-                    token = home_business.split('EAAG')[1].split('","')[0]
-                    cookie_token = f'{cookie}|EAAG{token}'
-                    valid_tokens.append(cookie_token)
-                else:
-                    print(f"[!] Không thể lấy token từ cookie: {cookie[:50]}... Cookie có thể không hợp lệ.")
+            if 'EAAG' in home_business:
+                token = home_business.split('EAAG')[1].split('","')[0]
+                cookie_token = f'{cookie}|EAAG{token}'
+                valid_tokens.append(cookie_token)
             else:
-                print(f"[!] Lỗi khi lấy token cho cookie: {cookie[:50]}... Status Code: {response.status_code}")
-
+                print(f"[!] Không thể lấy token từ cookie: {cookie[:50]}... Cookie có thể không hợp lệ.")
         except requests.exceptions.RequestException as e:
             print(f"[!] Lỗi khi lấy token cho cookie: {cookie[:50]}... Lỗi request: {e}")
         except Exception as e:
@@ -149,17 +146,13 @@ def share(tach, id_share):
     try:
         res = requests.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_share}&published=0&access_token={token}', headers=headers, timeout=10)
         res.raise_for_status()
-        if res.ok:  # Explicitly check for successful status
-            response_json = res.json()
-            if 'id' in response_json:
-                return True
-            else:
-                print(f"[!] Chia sẻ thất bại: ID: {id_share} - Phản hồi: {response_json}")
-                return False
-        else:
-            print(f"[!] Chia sẻ thất bại: ID: {id_share} - Status Code: {res.status_code}")
-            return False
+        response_json = res.json()
 
+        if 'id' in response_json:
+            return True
+        else:
+            print(f"[!] Chia sẻ thất bại: ID: {id_share} - Phản hồi: {response_json}")
+            return False
     except requests.exceptions.RequestException as e:
         print(f"[!] Lỗi request chia sẻ: ID: {id_share} - {e}")
         return False
@@ -184,7 +177,8 @@ def reset_user_data(user_id):
         stop_sharing_flags[user_id] = False
     if user_id in share_counts:
         share_counts[user_id] = 0
-    reset_times[user_id] = datetime.now(VN_TIMEZONE).date()
+    if user_id in reset_times: # Kiểm tra key có tồn tại không
+      reset_times[user_id] = datetime.now(VN_TIMEZONE).date()
 
 # --- Bộ xử lý Bot Telegram ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'document'])
@@ -243,11 +237,17 @@ def share_command(message):
     if message.chat.type != 'private':
         bot.reply_to(message, "Lệnh /share chỉ hoạt động trong các cuộc trò chuyện riêng tư. Vui lòng nhắn tin trực tiếp cho bot.")
         return
+    
+    current_date = datetime.now(VN_TIMEZONE).date()
 
     # Kiểm tra giới hạn hàng ngày và VIP
-    if user_id not in VIP_USER_IDS and user_id in share_counts and share_counts[user_id] >= DAILY_SHARE_LIMIT:
-        bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
-        return
+    if user_id not in VIP_USER_IDS:
+        if user_id in share_counts and share_counts[user_id] >= DAILY_SHARE_LIMIT and reset_times.get(user_id) == current_date:
+          bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
+          return
+        elif user_id not in share_counts or reset_times.get(user_id) != current_date:
+            # Reset daily count if it's a new day
+            reset_user_data(user_id)
 
     # Thông báo cho người dùng VIP
     if user_id in VIP_USER_IDS:
@@ -266,7 +266,7 @@ def stop_share_callback(call):
     """Xử lý sự kiện nhấn nút 'Dừng Chia sẻ'."""
     user_id = call.from_user.id
     stop_sharing_flags[user_id] = True
-    bot.edit_message_text("Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.", call.message.chat.id, call.message.message_id)
+    bot.send_message(call.message.chat.id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.")
 
 
 @bot.message_handler(commands=['reset'])
@@ -370,7 +370,9 @@ def start_sharing(user_id):
     bot.send_message(chat_id, f"Tìm thấy {total_live} token hợp lệ.")
 
     # Khởi tạo hoặc đặt lại số lượt đếm hàng ngày, trừ VIP
-    if user_id not in VIP_USER_IDS and (user_id not in share_counts or reset_times.get(user_id) != datetime.now(VN_TIMEZONE).date()):
+    current_date = datetime.now(VN_TIMEZONE).date()
+    if user_id not in VIP_USER_IDS:
+      if user_id not in share_counts or reset_times.get(user_id) != current_date:
           reset_user_data(user_id)
 
 
@@ -379,56 +381,54 @@ def start_sharing(user_id):
     successful_shares = 0
     continue_sharing = True
     stop_sharing_flags[user_id] = False
+    current_date = datetime.now(VN_TIMEZONE).date()  # Lấy ngày hiện tại
+
 
     while continue_sharing:
-        current_date = datetime.now(VN_TIMEZONE).date()
-        # Reset if the date has changed (for non-VIPs)
-        if user_id not in VIP_USER_IDS and reset_times.get(user_id) != current_date:
-            reset_user_data(user_id)
         for tach in all_tokens:
             if stop_sharing_flags.get(user_id, False):
                 continue_sharing = False
                 break
-            # --- CRITICAL DAILY LIMIT CHECK (with VIP bypass) ---
-            if user_id not in VIP_USER_IDS and share_counts.get(user_id, 0) >= DAILY_SHARE_LIMIT:
-                bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
-                continue_sharing = False
-                break  # Exit the inner loop immediately
-            # --- END CRITICAL CHECK ---
+
+            # Kiểm tra giới hạn hàng ngày, trừ VIP
+            if user_id not in VIP_USER_IDS:
+              if reset_times.get(user_id) != current_date: # Reset nếu khác ngày
+                reset_user_data(user_id)
+              if share_counts.get(user_id, 0) >= DAILY_SHARE_LIMIT:
+                  bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {DAILY_SHARE_LIMIT}. Vui lòng thử lại vào ngày mai hoặc nâng cấp lên VIP để không giới hạn.")
+                  continue_sharing = False
+                  break
+
             stt += 1
             success = share_thread_telegram(tach, id_share, user_id)  # Truyền user_id
             if success:
                 successful_shares += 1
-                # --- CORRECT INCREMENT (with VIP bypass) ---
+                # Tăng số lượt đếm, trừ VIP
                 if user_id not in VIP_USER_IDS:
                     share_counts[user_id] = share_counts.get(user_id, 0) + 1
-                # --- END CORRECT INCREMENT ---
+            time.sleep(delay)
+            shared_count += 1
 
-            # Check if total share limit reached
-            if total_share_limit > 0 and shared_count + 1 > total_share_limit:
+            if total_share_limit > 0 and shared_count >= total_share_limit:
                 continue_sharing = False
                 break
 
-            shared_count += 1 #Increment the count of attempted share
-            time.sleep(delay)
-
-
-
     bot.send_message(chat_id, "Quá trình chia sẻ hoàn tất.")
-    if total_share_limit > 0:
-      bot.send_message(chat_id, f"Đã thực hiện {shared_count} lượt chia sẻ / Giới hạn: {total_share_limit} lượt.")
+    if total_share_limit > 0 and shared_count >= total_share_limit:
+        bot.send_message(chat_id, f"Đã đạt đến giới hạn chia sẻ là {total_share_limit} lượt.")
     bot.send_message(chat_id, f"Tổng số lượt chia sẻ thành công: {successful_shares}.")
     reset_user_data(user_id)
 
 
 # ---  Vòng lặp chính ---
+# Removed queue processing functions
 
 if __name__ == "__main__":
     print("Bot đang chạy...")
     while True:
         try:
             # Sử dụng bot.polling() với timeout
-            bot.polling(timeout=10, none_stop = True)  # Kiểm tra cập nhật mỗi 10 giây
+            bot.polling(timeout=10, none_stop=True)  # Kiểm tra cập nhật mỗi 10 giây, none_stop = True để không dừng khi lỗi
         except Exception as e:
             print(f"Lỗi trong quá trình polling: {e}")
             time.sleep(5)  # Đợi 5 giây trước khi thử lại
