@@ -60,7 +60,7 @@ user_agents = [
 ]
 
 # --- Hằng số ---
-DAILY_SHARE_LIMIT = 5000
+DAILY_SHARE_LIMIT = 200
 VN_TIMEZONE = timezone(timedelta(hours=7))  # Múi giờ Việt Nam (GMT+7)
 
 # --- Cấu trúc dữ liệu ---
