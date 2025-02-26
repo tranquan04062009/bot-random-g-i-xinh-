@@ -211,9 +211,9 @@ def handle_message(message):
 
 
 def command_handler(message):
-    """Xử lý các lệnh (/start, /share, /reset)."""
+    """Xử lý các lệnh (/startshare, /share, /reset)."""
     try:
-        if message.text.startswith('/start'):
+        if message.text.startswith('/startshare'):
             start(message)
         elif message.text.startswith('/share'):
             share_command(message)
@@ -222,7 +222,7 @@ def command_handler(message):
     except Exception as e:
         bot.reply_to(message, f"Đã xảy ra lỗi khi xử lý lệnh của bạn: {e}")
 
-@bot.message_handler(commands=['start'])
+@bot.message_handler(commands=['startshare'])
 def start(message):
     """Xử lý lệnh /start."""
     bot.reply_to(message, "Chào mừng! Sử dụng /share để bắt đầu chia sẻ.")
