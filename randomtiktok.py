@@ -32,7 +32,7 @@ VN_TIMEZONE = timezone(timedelta(hours=7))
 GIOI_HAN_CHIA_SE_HANG_NGAY = 5000  # Giới hạn 5000 lượt chia sẻ mỗi ngày
 GIOI_HAN_CHIA_SE_GIO = 400  # Giới hạn 100 lượt mỗi giờ để bắt chước con người
 NGUONG_THAP = 1000  # Ngưỡng thấp để cảnh báo người dùng
-MAX_RETRIES = 3  # Số lần thử lại tối đa cho các yêu cầu
+MAX_RETRIES = 3  #Số lần thử lại tối đa cho các yêu cầu
 INITIAL_BACKOFF = 1  # Thời gian backoff ban đầu (giây)
 MIN_DELAY = 0.5  # Độ trễ tối thiểu khi delay = 0 để tránh quá tải
 
@@ -197,15 +197,19 @@ async def kiem_tra_gioi_han_gio(ma_nguoi_dung: int) -> bool:
                         return so_luot >= GIOI_HAN_CHIA_SE_GIO
     return False
 
-# Bắt đầu quá trình chia sẻ với tốc độ cao, hỗ trợ delay 0
+# Bắt đầu quá trình chia sẻ với tốc độ cao, hỗ trợ delay 0, giữ lại thông báo quan trọng
 async def bat_dau_chia_se(ma_nguoi_dung: int, chat_id: int) -> None:
     if ma_nguoi_dung not in active_users or active_users[ma_nguoi_dung]['chat_id'] != chat_id:
-        await bot.send_message(chat_id, "Bạn không phải là người đã khởi tạo lệnh /share. Vui lòng sử dụng /share để bắt đầu.")
+        thong_bao = await bot.send_message(chat_id, "Bạn không phải là người đã khởi tạo lệnh /share. Vui lòng sử dụng /share để bắt đầu.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
         return
 
     du_lieu = active_users[ma_nguoi_dung]['data']
     if not du_lieu:
-        await bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với /share.")
+        thong_bao = await bot.send_message(chat_id, "Dữ liệu không đầy đủ. Vui lòng bắt đầu lại với /share.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
         return
 
     input_file = du_lieu['cookie_file']
@@ -220,20 +224,20 @@ async def bat_dau_chia_se(ma_nguoi_dung: int, chat_id: int) -> None:
         del active_users[ma_nguoi_dung]
         return
 
-    thong_bao = await bot.send_message(chat_id, f"Tìm thấy {len(all_tokens)} token hợp lệ.")
-    await xoa_tin_nhan(chat_id, thong_bao.message_id)
+    await bot.send_message(chat_id, f"Tìm thấy {len(all_tokens)} token hợp lệ.")
 
     if await kiem_tra_gioi_han_hang_ngay(ma_nguoi_dung):
         await dat_lai_du_lieu_nguoi_dung(ma_nguoi_dung)
     if await kiem_tra_gioi_han_gio(ma_nguoi_dung):
         thong_bao_gio = await bot.send_message(chat_id, "Đã đạt giới hạn chia sẻ trong giờ. Vui lòng chờ 1 giờ trước khi tiếp tục.")
-        await asyncio.sleep(2)  # Chờ 2 giây trước khi xóa để người dùng thấy thông báo
+        await asyncio.sleep(2)
         await xoa_tin_nhan(chat_id, thong_bao_gio.message_id)
         return
 
     stop_sharing_flags[ma_nguoi_dung] = False
     stt = 0
     so_luot_thanh_cong = 0
+    await bot.send_message(chat_id, "Bắt đầu chia sẻ...")
     while not stop_sharing_flags.get(ma_nguoi_dung, False):
         tasks = []
         for tach in all_tokens:
@@ -258,18 +262,10 @@ async def bat_dau_chia_se(ma_nguoi_dung: int, chat_id: int) -> None:
         if gioi_han_tong_luot > 0 and so_luot_thanh_cong >= gioi_han_tong_luot:
             stop_sharing_flags[ma_nguoi_dung] = True
 
-        # Hỗ trợ delay = 0 với độ trễ tối thiểu để tránh quá tải
         await asyncio.sleep(max(MIN_DELAY, random.uniform(max(0, do_tre - 2), do_tre + 2)))
 
-    thong_bao_hoan_tat = await bot.send_message(chat_id, "Quá trình chia sẻ đã hoàn tất.")
-    if gioi_han_tong_luot > 0 and so_luot_thanh_cong >= gioi_han_tong_luot:
-        thong_bao_gioi_han = await bot.send_message(chat_id, f"Đã đạt đến giới hạn chia sẻ là {gioi_han_tong_luot} lượt.")
-        await asyncio.sleep(2)
-        await xoa_tin_nhan(chat_id, thong_bao_gioi_han.message_id)
-    thong_bao_thanh_cong = await bot.send_message(chat_id, f"Tổng số lượt chia sẻ thành công: {so_luot_thanh_cong}.")
-    await asyncio.sleep(2)
-    await xoa_tin_nhan(chat_id, thong_bao_hoan_tat.message_id)
-    await xoa_tin_nhan(chat_id, thong_bao_thanh_cong.message_id)
+    await bot.send_message(chat_id, "Quá trình chia sẻ đã hoàn tất.")
+    await bot.send_message(chat_id, f"Tổng số lượt chia sẻ thành công: {so_luot_thanh_cong}.")
     await dat_lai_du_lieu_nguoi_dung(ma_nguoi_dung)
     del active_users[ma_nguoi_dung]
 
@@ -329,7 +325,9 @@ async def share_lenh(message):
         return
 
     if ma_nguoi_dung in active_users and active_users[ma_nguoi_dung]['chat_id'] != chat_id:
-        await bot.reply_to(message, "Bạn đã khởi tạo lệnh /share trong một nhóm khác. Vui lòng sử dụng lệnh trong nhóm đã bắt đầu.")
+        thong_bao = await bot.reply_to(message, "Bạn đã khởi tạo lệnh /share trong một nhóm khác. Vui lòng sử dụng lệnh trong nhóm đã bắt đầu.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
         return
 
     so_luot_hien_tai = await lay_so_luot_chia_se(ma_nguoi_dung)
@@ -359,9 +357,7 @@ async def dung_share_callback(call):
     nguoi_goi = call.from_user.id
 
     if ma_nguoi_dung not in active_users or active_users[ma_nguoi_dung]['chat_id'] != chat_id:
-        thong_bao = await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
-        await asyncio.sleep(2)
-        await xoa_tin_nhan(chat_id, thong_bao.message_id)
+        await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
         return
 
     if nguoi_goi != ma_nguoi_dung and not await la_admin(chat_id, nguoi_goi):
@@ -372,15 +368,11 @@ async def dung_share_callback(call):
 
     if ma_nguoi_dung in stop_sharing_flags:
         stop_sharing_flags[ma_nguoi_dung] = True
-        thong_bao = await bot.send_message(chat_id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.")
-        await asyncio.sleep(2)
-        await xoa_tin_nhan(chat_id, thong_bao.message_id)
+        await bot.send_message(chat_id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.")
     else:
-        thong_bao = await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
-        await asyncio.sleep(2)
-        await xoa_tin_nhan(chat_id, thong_bao.message_id)
+        await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
 
-# Xử lý file cookie chỉ trong nhóm và tự động xóa tin nhắn
+# Xử lý file cookie chỉ trong nhóm và tự động xóa tin nhắn sau khi nhập
 @bot.message_handler(content_types=['document'], chat_types=['group', 'supergroup'])
 async def xu_ly_tai_lieu(message):
     ma_nguoi_dung = message.from_user.id
@@ -425,7 +417,7 @@ async def xu_ly_tai_lieu(message):
             if ma_nguoi_dung in active_users:
                 del active_users[ma_nguoi_dung]
 
-# Xử lý ID, độ trễ, và giới hạn chỉ cho người dùng đã dùng /share, tự động xóa tin nhắn
+# Xử lý ID, độ trễ, và giới hạn chỉ cho người dùng đã dùng /share, tự động xóa tin nhắn sau khi nhập
 @bot.message_handler(content_types=['text'], chat_types=['group', 'supergroup'])
 async def xu_ly_id_do_tre_gioi_han(message):
     ma_nguoi_dung = message.from_user.id
@@ -491,10 +483,8 @@ async def xu_ly_id_do_tre_gioi_han(message):
             markup.add(nut_dung)
             thong_bao = await bot.send_message(chat_id, "Bắt đầu chia sẻ...", reply_markup=markup)
             active_users[ma_nguoi_dung]['message_ids'].append(message.message_id)
-            active_users[ma_nguoi_dung]['message_ids'].append(thong_bao.message_id)
             await asyncio.sleep(2)
-            for msg_id in active_users[ma_nguoi_dung]['message_ids']:
-                await xoa_tin_nhan(chat_id, msg_id)
+            await xoa_tin_nhan(chat_id, message.message_id)  # Chỉ xóa tin nhắn người dùng, giữ lại "Bắt đầu chia sẻ..."
             active_users[ma_nguoi_dung]['message_ids'].clear()
             await bat_dau_chia_se(ma_nguoi_dung, chat_id)
         except ValueError:
@@ -537,7 +527,7 @@ async def help_lenh(message):
     
     **Lưu ý:**
     - Chỉ người khởi tạo lệnh /share hoặc admin nhóm mới có thể dừng quá trình chia sẻ.
-    - Bot tự động xóa tin nhắn sau khi xử lý.
+    - Bot tự động xóa tin nhắn nhập liệu sau khi xử lý.
     - Hỗ trợ độ trễ = 0 để chia sẻ nhanh nhất.
     """
     thong_bao = await bot.reply_to(message, help_text, parse_mode='Markdown')
