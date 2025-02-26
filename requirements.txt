@@ -2,5 +2,4 @@ asyncio
 aiohttp
 pyTelegramBotAPI
 faker
-sqlite3
 fake-useragent
