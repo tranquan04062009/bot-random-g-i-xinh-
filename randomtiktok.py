@@ -346,12 +346,12 @@ async def dung_share_callback(call):
 
     # Kiểm tra quyền: chỉ user khởi tạo hoặc admin mới được dừng
     if nguoi_goi != ma_nguoi_dung and not await la_admin(chat_id, nguoi_goi):
-        await bot.send_message(chat_id, "Chỉ người khởi tạo lệnh /share hoặc admin mới có thể dừng quá trình chia sẻ.")
+        await bot.send_message(call.from_user.id, "Chỉ người khởi tạo lệnh /share hoặc admin mới có thể dừng quá trình chia sẻ.") # Send private message
         return
 
     if ma_nguoi_dung in stop_sharing_flags:
         stop_sharing_flags[ma_nguoi_dung] = True
-        await bot.send_message(call.from_user.id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.") # Send only to user who pressed button
+        await bot.send_message(call.from_user.id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.") # Send private message
     else:
         await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
 
