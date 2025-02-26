@@ -32,12 +32,12 @@ VN_TIMEZONE = timezone(timedelta(hours=7))
 GIOI_HAN_CHIA_SE_HANG_NGAY = 5000  # Giới hạn 5000 lượt chia sẻ mỗi ngày
 # GIOI_HAN_CHIA_SE_GIO = 100  # Loại bỏ giới hạn giờ
 NGUONG_THAP = 1000  # Ngưỡng thấp để cảnh báo người dùng
-MAX_RETRIES = 5  # Số lần thử lại tối đa cho các yêu cầu
-INITIAL_BACKOFF = 1  # Thời gian backoff ban đầu (giây)
+MAX_RETRIES = 3  # Số lần thử lại tối đa cho các yêu cầu
+INITIAL_BACKOFF = 0  # Thời gian backoff ban đầu (giây)
 
 # Danh sách user agents mở rộng với kiểm soát chất lượng
 def lay_danh_sach_user_agents() -> List[str]:
-    return [ua.random for _ in range(300)]  # Tạo 300 user agent ngẫu nhiên với độ đa dạng cao
+    return [ua.random for _ in range(500)]  # Tạo 300 user agent ngẫu nhiên với độ đa dạng cao
 
 user_agents = lay_danh_sach_user_agents()
 
@@ -94,7 +94,7 @@ async def gia_lap_hanh_vi_con_nguoi(cookie: str, id_chia_se: str) -> bool:
             try:
                 async with session.get(f'https://m.facebook.com/{id_chia_se}', headers=headers, timeout=15) as response:
                     if response.status == 200:
-                        await asyncio.sleep(random.uniform(1.5, 4.0))  # Chờ giống con người
+                        await asyncio.sleep(random.uniform(1.5, 2.0))  # Chờ giống con người
                         await session.get(f'https://m.facebook.com/{id_chia_se}/?sk=feed', headers=headers, timeout=10)
                         return True
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -153,7 +153,7 @@ async def chia_se(cookie: str, token: str, id_chia_se: str) -> bool:
 
         async with aiohttp.ClientSession() as session:
             try:
-                await asyncio.sleep(random.uniform(0, 5.0) if float(active_users[active_users.keys().__iter__().__next__()]['data']['do_tre']) > 0 else 0) # delay = 0 now support
+                await asyncio.sleep(random.uniform(0, 3.0) if float(active_users[active_users.keys().__iter__().__next__()]['data']['do_tre']) > 0 else 0) # delay = 0 now support
                 async with session.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_chia_se}&published=0&access_token={token}',
                                       headers=headers, timeout=15) as response:
                     if response.status == 200:
