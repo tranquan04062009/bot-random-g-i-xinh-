@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Hardcode BOT_TOKEN (không khuyến nghị trong thực tế vì lý do bảo mật)
-BOT_TOKEN = "7903504769:AAFeKxomzBB-QtDzwOXojBofz9vju2CsDKc"  # Thay thế bằng token thật của bạn
+BOT_TOKEN = "7903504769:AAHyZiod3chQhGQ3Jez5Bs6vaQCVVOxaXCE"  # Thay thế bằng token thật của bạn
 
 # Khởi tạo bot Telegram bất đồng bộ và Faker
 bot = AsyncTeleBot(BOT_TOKEN)
