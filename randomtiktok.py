@@ -153,7 +153,7 @@ async def chia_se(cookie: str, token: str, id_chia_se: str) -> bool:
 
         async with aiohttp.ClientSession() as session:
             try:
-                await asyncio.sleep(random.uniform(0, 1.0) if float(active_users[active_users.keys().__iter__().__next__()]['data']['do_tre']) > 0 else 0) # delay = 0 now support
+                await asyncio.sleep(random.uniform(0, 5.0) if float(active_users[active_users.keys().__iter__().__next__()]['data']['do_tre']) > 0 else 0) # delay = 0 now support
                 async with session.post(f'https://graph.facebook.com/me/feed?link=https://m.facebook.com/{id_chia_se}&published=0&access_token={token}',
                                       headers=headers, timeout=15) as response:
                     if response.status == 200:
@@ -351,7 +351,7 @@ async def dung_share_callback(call):
 
     if ma_nguoi_dung in stop_sharing_flags:
         stop_sharing_flags[ma_nguoi_dung] = True
-        await bot.send_message(chat_id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.")
+        await bot.send_message(call.from_user.id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.") # Send only to user who pressed button
     else:
         await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
 
