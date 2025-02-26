@@ -30,10 +30,11 @@ VN_TIMEZONE = timezone(timedelta(hours=7))
 
 # Hằng số
 GIOI_HAN_CHIA_SE_HANG_NGAY = 5000  # Giới hạn 5000 lượt chia sẻ mỗi ngày
-GIOI_HAN_CHIA_SE_GIO = 100  # Giới hạn 100 lượt mỗi giờ để bắt chước con người
+GIOI_HAN_CHIA_SE_GIO = 400  # Giới hạn 100 lượt mỗi giờ để bắt chước con người
 NGUONG_THAP = 1000  # Ngưỡng thấp để cảnh báo người dùng
-MAX_RETRIES = 5  # Số lần thử lại tối đa cho các yêu cầu
+MAX_RETRIES = 3  # Số lần thử lại tối đa cho các yêu cầu
 INITIAL_BACKOFF = 1  # Thời gian backoff ban đầu (giây)
+MIN_DELAY = 0.5  # Độ trễ tối thiểu khi delay = 0 để tránh quá tải
 
 # Danh sách user agents mở rộng với kiểm soát chất lượng
 def lay_danh_sach_user_agents() -> List[str]:
@@ -42,7 +43,7 @@ def lay_danh_sach_user_agents() -> List[str]:
 user_agents = lay_danh_sach_user_agents()
 
 # Quản lý trạng thái chia sẻ và người dùng đã sử dụng lệnh /share trong nhóm
-active_users: Dict[int, Dict] = {}  # Lưu thông tin người dùng đã dùng /share {user_id: {'chat_id': int, 'data': dict}}
+active_users: Dict[int, Dict] = {}  # Lưu thông tin người dùng đã dùng /share {user_id: {'chat_id': int, 'data': dict, 'message_ids': list}}
 stop_sharing_flags: Dict[int, bool] = {}
 
 # Thiết lập cơ sở dữ liệu SQLite bất đồng bộ
@@ -54,7 +55,7 @@ async def khoi_tao_co_so_du_lieu() -> None:
         await conn.commit()
     logger.info("Cơ sở dữ liệu đã được khởi tạo hoặc kiểm tra.")
 
-# Hàm kiểm tra quyền admin trong nhóm
+# Hàm kiểm tra quyền admin trong nhóm (dùng để dừng chia sẻ)
 async def la_admin(chat_id: int, user_id: int) -> bool:
     try:
         chat_member = await bot.get_chat_member(chat_id, user_id)
@@ -63,6 +64,14 @@ async def la_admin(chat_id: int, user_id: int) -> bool:
         logger.error(f"[!] Lỗi khi kiểm tra quyền admin cho user {user_id} trong chat {chat_id}: {e}")
         return False
 
+# Hàm xóa tin nhắn
+async def xoa_tin_nhan(chat_id: int, message_id: int) -> None:
+    try:
+        await bot.delete_message(chat_id, message_id)
+        logger.info(f"[✓] Đã xóa tin nhắn ID {message_id} trong chat {chat_id}.")
+    except Exception as e:
+        logger.warning(f"[!] Lỗi khi xóa tin nhắn ID {message_id} trong chat {chat_id}: {e}")
+
 # Hàm lấy header ngẫu nhiên với dấu vân tay nâng cao
 def lay_header_ngau_nhien() -> Dict[str, str]:
     headers = {
@@ -70,7 +79,7 @@ def lay_header_ngau_nhien() -> Dict[str, str]:
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'accept-language': random.choice(['vi-VN', 'en-US', 'fr-FR', 'ja-JP']),
         'cache-control': 'max-age=0',
-        'referer': f'https://www.facebook.com/{random.randint(1000000, 9999999)}',  # URL ngẫu nhiên
+        'referer': f'https://www.facebook.com/{random.randint(1000000, 9999999)}',
         'sec-ch-ua': f'"{fake.chrome(version_from=90, version_to=130)}";v="{random.randint(90, 130)}", "Not/A)Brand";v="99", "Chromium";v="130"',
         'sec-ch-ua-mobile': '?0' if random.random() > 0.5 else '?1',
         'sec-ch-ua-platform': f'"{random.choice(["Windows", "Linux", "macOS", "Android", "iOS"])}"',
@@ -80,8 +89,8 @@ def lay_header_ngau_nhien() -> Dict[str, str]:
         'sec-fetch-user': '?1',
         'upgrade-insecure-requests': '1',
         'user-agent': random.choice(user_agents),
-        'x-forwarded-for': f'{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}',  # IP giả lập
-        'dnt': str(random.randint(0, 1)),  # Do Not Track ngẫu nhiên
+        'x-forwarded-for': f'{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}',
+        'dnt': str(random.randint(0, 1)),
     }
     return headers
 
@@ -94,12 +103,12 @@ async def gia_lap_hanh_vi_con_nguoi(cookie: str, id_chia_se: str) -> bool:
             try:
                 async with session.get(f'https://m.facebook.com/{id_chia_se}', headers=headers, timeout=15) as response:
                     if response.status == 200:
-                        await asyncio.sleep(random.uniform(1.5, 4.0))  # Chờ giống con người
+                        await asyncio.sleep(random.uniform(1.5, 4.0))
                         await session.get(f'https://m.facebook.com/{id_chia_se}/?sk=feed', headers=headers, timeout=10)
                         return True
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"[!] Lỗi giả lập hành vi (lần {attempt + 1}) cho ID {id_chia_se}: {e}")
-                await asyncio.sleep(INITIAL_BACKOFF * (2 ** attempt) * random.uniform(0.9, 1.1))  # Backoff ngẫu nhiên
+                await asyncio.sleep(INITIAL_BACKOFF * (2 ** attempt) * random.uniform(0.9, 1.1))
     logger.error(f"[!] Không thể giả lập hành vi con người cho ID: {id_chia_se} sau {MAX_RETRIES} lần thử.")
     return False
 
@@ -129,7 +138,7 @@ async def lay_token(input_file: List[str]) -> List[str]:
                                 logger.warning(f"[!] Không thể lấy token từ cookie: {cookie[:50]}... Cookie có thể không hợp lệ.")
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                     logger.warning(f"[!] Lỗi khi lấy token cho cookie: {cookie[:50]}... Lỗi (lần {attempt + 1}): {e}")
-                    await asyncio.sleep(INITIAL_BACKOFF * (2 ** attempt) * random.uniform(0.9, 1.1))  # Backoff ngẫu nhiên
+                    await asyncio.sleep(INITIAL_BACKOFF * (2 ** attempt) * random.uniform(0.9, 1.1))
     return valid_tokens
 
 # Hàm chia sẻ bài viết bất đồng bộ với hành vi ẩn danh và retry nâng cao
@@ -163,7 +172,7 @@ async def chia_se(cookie: str, token: str, id_chia_se: str) -> bool:
                             return True
                         logger.warning(f"[!] Phản hồi không mong muốn cho ID: {id_chia_se} - {data}")
                         return False
-                    elif response.status == 429:  # Too Many Requests
+                    elif response.status == 429:
                         logger.warning(f"[!] Phát hiện giới hạn tốc độ cho ID: {id_chia_se} (lần {attempt + 1})")
                         await asyncio.sleep(INITIAL_BACKOFF * (2 ** attempt) * random.uniform(0.9, 1.1))
                     elif response.status in [403, 404, 500]:
@@ -184,11 +193,11 @@ async def kiem_tra_gioi_han_gio(ma_nguoi_dung: int) -> bool:
                 so_luot, thoi_gian_cuoi = result
                 if thoi_gian_cuoi:
                     thoi_gian_cuoi = datetime.fromisoformat(thoi_gian_cuoi)
-                    if (datetime.now(VN_TIMEZONE) - thoi_gian_cuoi).total_seconds() < 3600:  # 1 giờ
+                    if (datetime.now(VN_TIMEZONE) - thoi_gian_cuoi).total_seconds() < 3600:
                         return so_luot >= GIOI_HAN_CHIA_SE_GIO
     return False
 
-# Bắt đầu quá trình chia sẻ với tốc độ cao, ẩn danh, và theo dõi chi tiết
+# Bắt đầu quá trình chia sẻ với tốc độ cao, hỗ trợ delay 0
 async def bat_dau_chia_se(ma_nguoi_dung: int, chat_id: int) -> None:
     if ma_nguoi_dung not in active_users or active_users[ma_nguoi_dung]['chat_id'] != chat_id:
         await bot.send_message(chat_id, "Bạn không phải là người đã khởi tạo lệnh /share. Vui lòng sử dụng /share để bắt đầu.")
@@ -211,12 +220,15 @@ async def bat_dau_chia_se(ma_nguoi_dung: int, chat_id: int) -> None:
         del active_users[ma_nguoi_dung]
         return
 
-    await bot.send_message(chat_id, f"Tìm thấy {len(all_tokens)} token hợp lệ.")
+    thong_bao = await bot.send_message(chat_id, f"Tìm thấy {len(all_tokens)} token hợp lệ.")
+    await xoa_tin_nhan(chat_id, thong_bao.message_id)
 
     if await kiem_tra_gioi_han_hang_ngay(ma_nguoi_dung):
         await dat_lai_du_lieu_nguoi_dung(ma_nguoi_dung)
     if await kiem_tra_gioi_han_gio(ma_nguoi_dung):
-        await bot.send_message(chat_id, "Đã đạt giới hạn chia sẻ trong giờ. Vui lòng chờ 1 giờ trước khi tiếp tục.")
+        thong_bao_gio = await bot.send_message(chat_id, "Đã đạt giới hạn chia sẻ trong giờ. Vui lòng chờ 1 giờ trước khi tiếp tục.")
+        await asyncio.sleep(2)  # Chờ 2 giây trước khi xóa để người dùng thấy thông báo
+        await xoa_tin_nhan(chat_id, thong_bao_gio.message_id)
         return
 
     stop_sharing_flags[ma_nguoi_dung] = False
@@ -226,8 +238,10 @@ async def bat_dau_chia_se(ma_nguoi_dung: int, chat_id: int) -> None:
         tasks = []
         for tach in all_tokens:
             if await lay_so_luot_chia_se(ma_nguoi_dung) >= GIOI_HAN_CHIA_SE_HANG_NGAY:
-                await bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {GIOI_HAN_CHIA_SE_HANG_NGAY}. Vui lòng thử lại vào ngày mai.")
+                thong_bao_ngay = await bot.send_message(chat_id, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {GIOI_HAN_CHIA_SE_HANG_NGAY}. Vui lòng thử lại vào ngày mai.")
                 stop_sharing_flags[ma_nguoi_dung] = True
+                await asyncio.sleep(2)
+                await xoa_tin_nhan(chat_id, thong_bao_ngay.message_id)
                 break
 
             tasks.append(chia_se(tach.split('|')[0], tach.split('|')[1], id_chia_se))
@@ -244,12 +258,18 @@ async def bat_dau_chia_se(ma_nguoi_dung: int, chat_id: int) -> None:
         if gioi_han_tong_luot > 0 and so_luot_thanh_cong >= gioi_han_tong_luot:
             stop_sharing_flags[ma_nguoi_dung] = True
 
-        await asyncio.sleep(random.uniform(max(0, do_tre - 2), do_tre + 2))
+        # Hỗ trợ delay = 0 với độ trễ tối thiểu để tránh quá tải
+        await asyncio.sleep(max(MIN_DELAY, random.uniform(max(0, do_tre - 2), do_tre + 2)))
 
-    await bot.send_message(chat_id, "Quá trình chia sẻ đã hoàn tất.")
+    thong_bao_hoan_tat = await bot.send_message(chat_id, "Quá trình chia sẻ đã hoàn tất.")
     if gioi_han_tong_luot > 0 and so_luot_thanh_cong >= gioi_han_tong_luot:
-        await bot.send_message(chat_id, f"Đã đạt đến giới hạn chia sẻ là {gioi_han_tong_luot} lượt.")
-    await bot.send_message(chat_id, f"Tổng số lượt chia sẻ thành công: {so_luot_thanh_cong}.")
+        thong_bao_gioi_han = await bot.send_message(chat_id, f"Đã đạt đến giới hạn chia sẻ là {gioi_han_tong_luot} lượt.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao_gioi_han.message_id)
+    thong_bao_thanh_cong = await bot.send_message(chat_id, f"Tổng số lượt chia sẻ thành công: {so_luot_thanh_cong}.")
+    await asyncio.sleep(2)
+    await xoa_tin_nhan(chat_id, thong_bao_hoan_tat.message_id)
+    await xoa_tin_nhan(chat_id, thong_bao_thanh_cong.message_id)
     await dat_lai_du_lieu_nguoi_dung(ma_nguoi_dung)
     del active_users[ma_nguoi_dung]
 
@@ -314,17 +334,22 @@ async def share_lenh(message):
 
     so_luot_hien_tai = await lay_so_luot_chia_se(ma_nguoi_dung)
     if so_luot_hien_tai >= GIOI_HAN_CHIA_SE_HANG_NGAY:
-        await bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {GIOI_HAN_CHIA_SE_HANG_NGAY}. Vui lòng thử lại vào ngày mai.")
+        thong_bao_ngay = await bot.reply_to(message, f"Bạn đã đạt đến giới hạn chia sẻ hàng ngày là {GIOI_HAN_CHIA_SE_HANG_NGAY}. Vui lòng thử lại vào ngày mai.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, message.message_id)
+        await xoa_tin_nhan(chat_id, thong_bao_ngay.message_id)
         return
 
-    active_users[ma_nguoi_dung] = {'chat_id': chat_id, 'data': await lay_du_lieu_nguoi_dung(ma_nguoi_dung) or {}}
+    active_users[ma_nguoi_dung] = {'chat_id': chat_id, 'data': await lay_du_lieu_nguoi_dung(ma_nguoi_dung) or {}, 'message_ids': []}
     active_users[ma_nguoi_dung]['data'].clear()
     await cap_nhat_du_lieu_nguoi_dung(ma_nguoi_dung, active_users[ma_nguoi_dung]['data'])
 
     markup = types.InlineKeyboardMarkup()
     nut_dung = types.InlineKeyboardButton("Dừng Chia Sẻ", callback_data=f"dung_share_{ma_nguoi_dung}")
     markup.add(nut_dung)
-    await bot.send_message(chat_id, "Vui lòng gửi file cookie (cookies.txt).", reply_markup=markup)
+    thong_bao = await bot.send_message(chat_id, "Vui lòng gửi file cookie (cookies.txt).", reply_markup=markup)
+    active_users[ma_nguoi_dung]['message_ids'].append(message.message_id)
+    active_users[ma_nguoi_dung]['message_ids'].append(thong_bao.message_id)
 
 # Xử lý callback dừng chia sẻ (chỉ user khởi tạo hoặc admin)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dung_share_"))
@@ -334,27 +359,37 @@ async def dung_share_callback(call):
     nguoi_goi = call.from_user.id
 
     if ma_nguoi_dung not in active_users or active_users[ma_nguoi_dung]['chat_id'] != chat_id:
-        await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
+        thong_bao = await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
         return
 
-    # Kiểm tra quyền: chỉ user khởi tạo hoặc admin mới được dừng
     if nguoi_goi != ma_nguoi_dung and not await la_admin(chat_id, nguoi_goi):
-        await bot.send_message(chat_id, "Chỉ người khởi tạo lệnh /share hoặc admin mới có thể dừng quá trình chia sẻ.")
+        thong_bao = await bot.send_message(chat_id, "Chỉ người khởi tạo lệnh /share hoặc admin mới có thể dừng quá trình chia sẻ.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
         return
 
     if ma_nguoi_dung in stop_sharing_flags:
         stop_sharing_flags[ma_nguoi_dung] = True
-        await bot.send_message(chat_id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.")
+        thong_bao = await bot.send_message(chat_id, "Đã dừng chia sẻ. Vui lòng đợi quá trình hiện tại kết thúc.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
     else:
-        await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
+        thong_bao = await bot.send_message(chat_id, "Không tìm thấy quá trình chia sẻ để dừng.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
 
-# Xử lý file cookie chỉ trong nhóm và tự động xóa file
+# Xử lý file cookie chỉ trong nhóm và tự động xóa tin nhắn
 @bot.message_handler(content_types=['document'], chat_types=['group', 'supergroup'])
 async def xu_ly_tai_lieu(message):
     ma_nguoi_dung = message.from_user.id
     chat_id = message.chat.id
     if ma_nguoi_dung not in active_users or active_users[ma_nguoi_dung]['chat_id'] != chat_id:
-        await bot.reply_to(message, "Bạn chưa khởi tạo lệnh /share trong nhóm này. Vui lòng dùng /share để bắt đầu.")
+        thong_bao = await bot.reply_to(message, "Bạn chưa khởi tạo lệnh /share trong nhóm này. Vui lòng dùng /share để bắt đầu.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, message.message_id)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
         return
 
     du_lieu = active_users[ma_nguoi_dung]['data']
@@ -366,22 +401,31 @@ async def xu_ly_tai_lieu(message):
             du_lieu['cookie_file'] = cookie_file
             await cap_nhat_du_lieu_nguoi_dung(ma_nguoi_dung, du_lieu)
 
-            # Tự động xóa file cookie sau khi xử lý
+            # Xóa file cookie tạm thời
             if os.path.exists(file_info.file_path):
                 os.remove(file_info.file_path)
                 logger.info(f"[✓] Đã xóa file cookie tạm thời cho người dùng {ma_nguoi_dung}.")
             else:
                 logger.warning(f"[!] Không tìm thấy file cookie để xóa cho người dùng {ma_nguoi_dung}.")
 
-            await bot.send_message(chat_id, "Đã nhận file cookie. Vui lòng nhập ID bài viết cần chia sẻ.")
+            thong_bao = await bot.send_message(chat_id, "Đã nhận file cookie. Vui lòng nhập ID bài viết cần chia sẻ.")
+            active_users[ma_nguoi_dung]['message_ids'].append(message.message_id)  # Tin nhắn của user
+            active_users[ma_nguoi_dung]['message_ids'].append(thong_bao.message_id)  # Tin nhắn của bot
+            await asyncio.sleep(2)
+            for msg_id in active_users[ma_nguoi_dung]['message_ids']:
+                await xoa_tin_nhan(chat_id, msg_id)
+            active_users[ma_nguoi_dung]['message_ids'].clear()
         except Exception as e:
             logger.error(f"[!] Lỗi khi xử lý file cho người dùng {ma_nguoi_dung}: {e}")
-            await bot.reply_to(message, f"Lỗi khi xử lý file: {e}")
+            thong_bao = await bot.reply_to(message, f"Lỗi khi xử lý file: {e}")
+            await asyncio.sleep(2)
+            await xoa_tin_nhan(chat_id, message.message_id)
+            await xoa_tin_nhan(chat_id, thong_bao.message_id)
             await dat_lai_du_lieu_nguoi_dung(ma_nguoi_dung)
             if ma_nguoi_dung in active_users:
                 del active_users[ma_nguoi_dung]
 
-# Xử lý ID, độ trễ, và giới hạn chỉ cho người dùng đã dùng /share
+# Xử lý ID, độ trễ, và giới hạn chỉ cho người dùng đã dùng /share, tự động xóa tin nhắn
 @bot.message_handler(content_types=['text'], chat_types=['group', 'supergroup'])
 async def xu_ly_id_do_tre_gioi_han(message):
     ma_nguoi_dung = message.from_user.id
@@ -394,26 +438,47 @@ async def xu_ly_id_do_tre_gioi_han(message):
         return
 
     if 'cookie_file' not in du_lieu:
-        await bot.reply_to(message, "Vui lòng gửi file cookie trước.")
+        thong_bao = await bot.reply_to(message, "Vui lòng gửi file cookie trước.")
+        await asyncio.sleep(2)
+        await xoa_tin_nhan(chat_id, message.message_id)
+        await xoa_tin_nhan(chat_id, thong_bao.message_id)
         return
     elif 'id_chia_se' not in du_lieu:
         id_chia_se = message.text.strip()
         if not id_chia_se.isdigit():
-            await bot.reply_to(message, "ID không hợp lệ. Vui lòng nhập lại ID bài viết.")
+            thong_bao = await bot.reply_to(message, "ID không hợp lệ. Vui lòng nhập lại ID bài viết.")
+            await asyncio.sleep(2)
+            await xoa_tin_nhan(chat_id, message.message_id)
+            await xoa_tin_nhan(chat_id, thong_bao.message_id)
             return
         du_lieu['id_chia_se'] = id_chia_se
         await cap_nhat_du_lieu_nguoi_dung(ma_nguoi_dung, du_lieu)
-        await bot.send_message(chat_id, "Vui lòng nhập độ trễ giữa các lần chia sẻ (tính bằng giây).")
+        thong_bao = await bot.send_message(chat_id, "Vui lòng nhập độ trễ giữa các lần chia sẻ (tính bằng giây).")
+        active_users[ma_nguoi_dung]['message_ids'].append(message.message_id)
+        active_users[ma_nguoi_dung]['message_ids'].append(thong_bao.message_id)
+        await asyncio.sleep(2)
+        for msg_id in active_users[ma_nguoi_dung]['message_ids']:
+            await xoa_tin_nhan(chat_id, msg_id)
+        active_users[ma_nguoi_dung]['message_ids'].clear()
     elif 'do_tre' not in du_lieu:
         try:
             do_tre = int(message.text.strip())
             if do_tre < 0:
                 raise ValueError
-            du_lieu['do_tre'] = do_tre
+            du_lieu['do_tre'] = do_tre  # Hỗ trợ delay = 0
             await cap_nhat_du_lieu_nguoi_dung(ma_nguoi_dung, du_lieu)
-            await bot.send_message(chat_id, "Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn).")
+            thong_bao = await bot.send_message(chat_id, "Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn).")
+            active_users[ma_nguoi_dung]['message_ids'].append(message.message_id)
+            active_users[ma_nguoi_dung]['message_ids'].append(thong_bao.message_id)
+            await asyncio.sleep(2)
+            for msg_id in active_users[ma_nguoi_dung]['message_ids']:
+                await xoa_tin_nhan(chat_id, msg_id)
+            active_users[ma_nguoi_dung]['message_ids'].clear()
         except ValueError:
-            await bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số.")
+            thong_bao = await bot.reply_to(message, "Độ trễ không hợp lệ. Vui lòng nhập độ trễ (tính bằng giây) là một số không âm.")
+            await asyncio.sleep(2)
+            await xoa_tin_nhan(chat_id, message.message_id)
+            await xoa_tin_nhan(chat_id, thong_bao.message_id)
     elif 'gioi_han_tong_luot' not in du_lieu:
         try:
             gioi_han_tong_luot = int(message.text.strip())
@@ -424,10 +489,19 @@ async def xu_ly_id_do_tre_gioi_han(message):
             markup = types.InlineKeyboardMarkup()
             nut_dung = types.InlineKeyboardButton("Dừng Chia Sẻ", callback_data=f"dung_share_{ma_nguoi_dung}")
             markup.add(nut_dung)
-            await bot.send_message(chat_id, "Bắt đầu chia sẻ...", reply_markup=markup)
+            thong_bao = await bot.send_message(chat_id, "Bắt đầu chia sẻ...", reply_markup=markup)
+            active_users[ma_nguoi_dung]['message_ids'].append(message.message_id)
+            active_users[ma_nguoi_dung]['message_ids'].append(thong_bao.message_id)
+            await asyncio.sleep(2)
+            for msg_id in active_users[ma_nguoi_dung]['message_ids']:
+                await xoa_tin_nhan(chat_id, msg_id)
+            active_users[ma_nguoi_dung]['message_ids'].clear()
             await bat_dau_chia_se(ma_nguoi_dung, chat_id)
         except ValueError:
-            await bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn) là một số.")
+            thong_bao = await bot.reply_to(message, "Giới hạn chia sẻ không hợp lệ. Vui lòng nhập tổng số lượt chia sẻ (0 để không giới hạn) là một số không âm.")
+            await asyncio.sleep(2)
+            await xoa_tin_nhan(chat_id, message.message_id)
+            await xoa_tin_nhan(chat_id, thong_bao.message_id)
 
 # Xử lý lệnh /resetbot chỉ trong nhóm
 @bot.message_handler(commands=['resetbot'], chat_types=['group', 'supergroup'])
@@ -441,7 +515,10 @@ async def resetbot_lenh(message):
     await dat_lai_du_lieu_nguoi_dung(ma_nguoi_dung)
     if ma_nguoi_dung in active_users:
         del active_users[ma_nguoi_dung]
-    await bot.reply_to(message, "Bot đã được đặt lại cho bạn.")
+    thong_bao = await bot.reply_to(message, "Bot đã được đặt lại cho bạn.")
+    await asyncio.sleep(2)
+    await xoa_tin_nhan(chat_id, message.message_id)
+    await xoa_tin_nhan(chat_id, thong_bao.message_id)
 
 # Xử lý lệnh /help chỉ trong nhóm
 @bot.message_handler(commands=['help'], chat_types=['group', 'supergroup'])
@@ -460,10 +537,13 @@ async def help_lenh(message):
     
     **Lưu ý:**
     - Chỉ người khởi tạo lệnh /share hoặc admin nhóm mới có thể dừng quá trình chia sẻ.
-    - Bot chỉ phản hồi người dùng đã dùng lệnh /share trong nhóm này.
-    - Đảm bảo file cookie hợp lệ và không vượt giới hạn chia sẻ hàng ngày (5000 lượt).
+    - Bot tự động xóa tin nhắn sau khi xử lý.
+    - Hỗ trợ độ trễ = 0 để chia sẻ nhanh nhất.
     """
-    await bot.reply_to(message, help_text, parse_mode='Markdown')
+    thong_bao = await bot.reply_to(message, help_text, parse_mode='Markdown')
+    await asyncio.sleep(5)  # Chờ lâu hơn để người dùng đọc
+    await xoa_tin_nhan(chat_id, message.message_id)
+    await xoa_tin_nhan(chat_id, thong_bao.message_id)
 
 # Hàm chính (bất đồng bộ, tối ưu hóa tốc độ và độ tin cậy)
 async def main():
