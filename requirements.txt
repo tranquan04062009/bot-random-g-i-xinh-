@@ -1,7 +1,6 @@
-pyTelegramBotAPI
-requests
-bs4
+asyncio
 aiohttp
-telethon
+pyTelegramBotAPI
 faker
-psycopg2
+sqlite3
+fake-useragent
